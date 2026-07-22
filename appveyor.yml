@@ -1,5 +1,22 @@
 version: 1.0.{build}
 
+# --- Репозиторий ---
+# Если проект в AppVeyor подключён через GitHub-интеграцию
+# (Projects → New Project → GitHub → nallion/AudioPlayer),
+# клонирование настраивать здесь НЕ нужно — AppVeyor сам клонирует
+# репозиторий, привязанный к проекту, при каждом пуше/PR по вебхуку.
+# clone_depth просто ускоряет чек-аут, не тянет полную историю.
+clone_depth: 5
+
+# Явный clone_script нужен только если проект подключён как
+# "Generic Git" (без GitHub webhook) — тогда AppVeyor не знает URL
+# репозитория сам, и его нужно прописать вручную. Если у тебя уже
+# есть привязка к GitHub в настройках проекта — этот блок можно
+# закомментировать/удалить, он не обязателен.
+# clone_script:
+#   - cmd: git clone -q --depth=5 https://github.com/nallion/AudioPlayer.git %APPVEYOR_BUILD_FOLDER%
+#   - cmd: cd %APPVEYOR_BUILD_FOLDER% && git checkout -qf %APPVEYOR_REPO_COMMIT%
+
 # UWP собирается только на Windows-образах с установленным Windows 10 SDK.
 # На образе VS2017 доступен Windows 10 SDK максимум 10.0.17763 (Fall Creators/April
 # Update поколение) — MSBuild там тоже 15.x, а не 16.x, как на VS2019.

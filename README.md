@@ -26,8 +26,8 @@ MainPage.xaml                                → UI, подписан на Visua
 ## Настройка проекта в Visual Studio
 
 1. Создать новый проект **Blank App (Universal Windows)**, Target/Min version — Windows 10, любая сборка ≥ 16299 (для WP10 подойдёт минимальная, доступная в твоём SDK).
-2. Установить NuGet-пакет **Win2D.uwp** (`Microsoft.Graphics.Canvas.UI.Xaml`) — для `CanvasControl`, на котором рисуется визуализатор.
-3. Скопировать файлы из этого архива в проект, сохранив структуру папок (`Services/`, `Helpers/`).
+2. NuGet-пакет **Win2D.uwp** (не путать с `Microsoft.Graphics.Win2D` — тот для WinUI3/Windows App SDK и с этим проектом несовместим) уже прописан в `packages.config`, восстановится сам при первой сборке.
+3. Скопировать файлы из этого архива в проект, сохранив структуру папок (`Services/`, `Helpers/`, `Properties/`).
 4. В `Package.appxmanifest`:
    - Добавить capability **Microphone** НЕ нужен (мы не пишем с микрофона, только читаем файл) — но нужен доступ к **Music Library**, если треки берутся из папки "Музыка": `<uap:Capability Name="musicLibrary"/>`.
    - Добавить декларацию **Background Tasks** → тип **Audio**, Entry point указывает на класс из App (см. `App.xaml.cs`, там же регистрация через `SystemMediaTransportControls`, что для UWP MediaPlayer — рекомендованный современный способ и явная `BackgroundTask` уже не обязательна, в отличие от старого `BackgroundMediaPlayer` WP8.1).
