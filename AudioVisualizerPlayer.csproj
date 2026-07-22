@@ -124,6 +124,16 @@
       <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Numerics.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="System.Runtime.WindowsRuntime">
+      <!-- Нужна XamlCompiler для проекции WinRT-типов (Color и т.п.) в App.xaml/MainPage.xaml -->
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.WindowsRuntime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Runtime.WindowsRuntime.UI.Xaml">
+      <!-- Нужна XamlCompiler для проекции XAML/UI-типов (Page, UIElement, Grid и т.п.) -->
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.WindowsRuntime.UI.Xaml.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
