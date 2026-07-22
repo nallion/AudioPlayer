@@ -50,11 +50,15 @@
             <TextBlock x:Name="DurationText" Text="0:00" Foreground="{StaticResource AppDimBrush}" FontSize="11" VerticalAlignment="Center"/>
         </StackPanel>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,26" Spacing="34">
+        <!-- Spacing на StackPanel требует UniversalApiContract v5 (build 16299),
+             у нас минимальная версия — 15063 (контракт v4). Расстояние между
+             кнопками задаём явным Margin вместо Spacing — совместимо с любой
+             версией UWP, начиная с самой первой. -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,26">
             <Button x:Name="PreviousButton" Click="PreviousButton_Click" Background="Transparent" BorderThickness="0">
                 <SymbolIcon Symbol="Previous" Foreground="White"/>
             </Button>
-            <Grid Width="64" Height="64">
+            <Grid Width="64" Height="64" Margin="34,0,0,0">
                 <!-- Ellipse вместо Button.CornerRadius: свойство CornerRadius на Button
                      требует UniversalApiContract v7 (SDK 17763+), а нам нужно работать
                      начиная с 1703 (build 15063). Ellipse поддерживается с самых первых
@@ -65,7 +69,7 @@
                     <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" Foreground="{StaticResource AppAccentBrush}"/>
                 </Button>
             </Grid>
-            <Button x:Name="NextButton" Click="NextButton_Click" Background="Transparent" BorderThickness="0">
+            <Button x:Name="NextButton" Click="NextButton_Click" Background="Transparent" BorderThickness="0" Margin="34,0,0,0">
                 <SymbolIcon Symbol="Next" Foreground="White"/>
             </Button>
         </StackPanel>
