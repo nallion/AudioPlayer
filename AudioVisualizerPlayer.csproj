@@ -134,11 +134,23 @@
        Без него MSBuild не поймёт .xaml файлы и AppxManifest. -->
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\WindowsXaml\v$(VisualStudioVersion)\Microsoft.Windows.UI.Xaml.CSharp.targets" />
 
-  <!-- Импорт NuGet targets для packages.config-стиля восстановления -->
-  <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
+  <!-- КРИТИЧЕСКИ ВАЖНО для packages.config-стиля: эти два импорта подключают
+       .targets из самих NuGet-пакетов. Именно они добавляют ссылки на facade-сборки
+       (System.Runtime и т.п.) и WinMD-метаданные UAP-контрактов. Без них
+       XamlCompiler падает с WMC1006 "Cannot resolve assembly System.Runtime",
+       а следом с ошибкой "не найден App.g.i.cs" — это просто следствие первой.
+       При обычной установке через Visual Studio Package Manager эти строки
+       NuGet дописывает в csproj сам; при ручном/CI-сценарии их нужно иметь здесь. -->
+  <Import Project="$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\native\Microsoft.NETCore.UniversalWindowsPlatform.targets" Condition="Exists('$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\native\Microsoft.NETCore.UniversalWindowsPlatform.targets')" />
+  <Import Project="$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets" Condition="Exists('$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets')" />
+
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>Этот проект ссылается на пакеты NuGet, которых нет на этом компьютере. Включите восстановление пакетов NuGet перед сборкой. Отсутствующий файл: {0}</ErrorText>
     </PropertyGroup>
+    <Error Condition="!Exists('$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\native\Microsoft.NETCore.UniversalWindowsPlatform.targets')"
+           Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\native\Microsoft.NETCore.UniversalWindowsPlatform.targets'))" />
+    <Error Condition="!Exists('$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets')"
+           Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets'))" />
   </Target>
 </Project>
