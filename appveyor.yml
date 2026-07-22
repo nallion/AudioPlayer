@@ -35,11 +35,18 @@ configuration:
   - Release
 
 install:
-  # Восстанавливаем NuGet-пакеты (Win2D и UWP toolchain) перед сборкой
-  - cmd: nuget restore AudioVisualizerPlayer.sln
+  # -PackagesDirectory фиксирует путь установки явно: без этого флага разные
+  # версии nuget.exe на разных образах могут класть пакеты для packages.config
+  # либо в "packages\" рядом с .sln (как ожидает наш .csproj), либо в глобальный
+  # кэш %userprofile%\.nuget\packages — и Import в csproj их не найдёт.
+  - cmd: nuget restore AudioVisualizerPlayer.sln -PackagesDirectory packages
 
 before_build:
-  - cmd: nuget restore AudioVisualizerPlayer.sln
+  - cmd: nuget restore AudioVisualizerPlayer.sln -PackagesDirectory packages
+  # Диагностика: если Import снова не найдёт .targets, в логе сразу будет видно,
+  # что реально лежит в packages\ и под какой версией — сверяем с packages.config.
+  - cmd: dir /s /b packages\Microsoft.NETCore.UniversalWindowsPlatform.* 2>nul || echo "UniversalWindowsPlatform package NOT restored"
+  - cmd: dir /s /b packages\Win2D.uwp.* 2>nul || echo "Win2D.uwp package NOT restored"
 
 build:
   project: AudioVisualizerPlayer.sln
