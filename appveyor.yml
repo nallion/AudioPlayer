@@ -48,6 +48,7 @@ before_build:
   # что реально лежит в packages\ и под какой версией — сверяем с packages.config.
   - cmd: dir /s /b packages\Microsoft.NETCore.UniversalWindowsPlatform.* 2>nul || echo "UniversalWindowsPlatform package NOT restored"
   - cmd: dir /s /b packages\Win2D.uwp.* 2>nul || echo "Win2D.uwp package NOT restored"
+  - cmd: dir /s /b packages\Microsoft.NETCore.Portable.Compatibility.* 2>nul || echo "Portable.Compatibility package NOT restored"
   # ВАЖНО: сам NuGet-пакет Microsoft.NETCore.UniversalWindowsPlatform не содержит
   # facade-сборок (System.Runtime.dll и т.п.) — они должны стоять на машине вместе
   # с компонентом Windows 10 SDK / "Universal Windows Platform tools". Проверяем,
