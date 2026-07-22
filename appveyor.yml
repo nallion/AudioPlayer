@@ -36,6 +36,19 @@ configuration:
   - Release
 
 install:
+  # Пытаемся доустановить Windows 10 SDK 10240 — именно с ним на машину ставится
+  # папка "...\Reference Assemblies\...\.NETCore\v4.5.1\" с facade-сборками
+  # (System.Runtime и т.п.), которых на этом образе нет. NuGet-пакеты
+  # (Microsoft.NETCore.Portable.Compatibility) эту проблему не закрыли — их
+  # содержимое просто не распаковалось из-за фильтра совместимости профилей.
+  # Не блокируем сборку, если команда не сработает (нет доступа к фиду
+  # компонентов на раннере) — просто увидим это по следующей диагностике.
+  - cmd: >-
+      "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vs_installer.exe"
+      modify --installPath "%ProgramFiles(x86)%\Microsoft Visual Studio\2017\Community"
+      --add Microsoft.VisualStudio.Component.Windows10SDK.10240
+      --quiet --norestart --wait
+      || echo "vs_installer modify failed or component unavailable — continuing anyway"
   # -PackagesDirectory фиксирует путь установки явно: без этого флага разные
   # версии nuget.exe на разных образах могут класть пакеты для packages.config
   # либо в "packages\" рядом с .sln (как ожидает наш .csproj), либо в глобальный
