@@ -80,8 +80,31 @@ build_script:
       /verbosity:minimal
 
 # Без .NET Native (UseDotNetNativeToolchain=false) MSBuild сам собирает
-# классический .appx напрямую (см. AppPackages\..._Test\...ARM.appx) —
-# отдельный шаг распаковки/перепаковки .msix→.appx больше не нужен.
+# классический .appx напрямую (см. AppPackages\..._Test\...ARM.appx).
+after_build:
+  # ПРИЧИНА КРАША НА УСТРОЙСТВЕ (найдено по минидампу): в собранный .appx
+  # попадают ~150 facade/reference-сборок из ref\uap10.0.15138\, которые мы
+  # раньше добавили в .csproj только для того, чтобы компилятор мог резолвить
+  # типы (WMC1006/CS0246 и т.п.). Это compile-time заглушки без реального IL —
+  # <Private>False</Private> для UWP-упаковки игнорируется, и они всё равно
+  # копируются в пакет, перекрывая собой настоящие реализации из
+  # Microsoft.NET.CoreRuntime. CoreCLR при старте резолвит System.Runtime
+  # первым делом, находит нашу заглушку раньше настоящей сборки — и падает
+  # с FileLoadException (HRESULT 0x80131040) ещё до старта managed-кода,
+  # поэтому ни try/catch, ни UnhandledException это не ловят.
+  # Чиним так же, как раньше чинили msix→appx: распаковываем готовый .appx,
+  # вычищаем все facade-DLL по списку, запаковываем обратно.
+  - cmd: >-
+      "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x86\makeappx.exe"
+      unpack /p "AppPackages\AudioVisualizerPlayer_1.0.0.0_%PLATFORM%_Test\AudioVisualizerPlayer_1.0.0.0_%PLATFORM%.appx"
+      /d unpacked_appx /o
+  - cmd: >-
+      for /f "usebackq delims=" %%f in ("facade_dlls_to_strip.txt") do
+      if exist "unpacked_appx\%%f" del "unpacked_appx\%%f"
+  - cmd: >-
+      "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x86\makeappx.exe"
+      pack /d unpacked_appx
+      /p AudioVisualizerPlayer_1.0.0.0_%PLATFORM%_clean.appx /o
 
 # Складываем готовые пакеты, если понадобится скачать артефакт для ручной
 # установки на устройство. Современный MSBuild с этими настройками собирает
