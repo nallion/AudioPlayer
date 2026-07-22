@@ -72,20 +72,25 @@ build_script:
       /p:Configuration=%CONFIGURATION%
       /p:Platform=%PLATFORM%
       /p:AppxBundlePlatforms="%PLATFORM%"
-      /p:AppxBundle=Never
+      /p:AppxBundle=Always
       /p:UapAppxPackageBuildMode=SideloadOnly
       /p:AppxPackageSigningEnabled=false
       /verbosity:minimal
 
-# Складываем готовые .appx/.appxbundle и .appxupload, если понадобится
-# скачать артефакт для ручной установки на устройство.
+# Складываем готовые пакеты, если понадобится скачать артефакт для ручной
+# установки на устройство. Современный MSBuild с этими настройками собирает
+# .msix (а не .appx/.appxbundle, хотя мы их тоже оставляем на случай других SDK).
 artifacts:
+  - path: '**\*.msix'
+    name: msix
   - path: '**\*.appx'
     name: appx
   - path: '**\*.appxbundle'
     name: appxbundle
   - path: '**\*.appxupload'
     name: appxupload
+  - path: '**\*.msixbundle'
+    name: msixbundle
 
 # ARM-сборка не запускается на CI-раннере, только компилируется —
 # юнит-тестов в проекте пока нет, поэтому тестовый шаг не настроен.
