@@ -5,9 +5,9 @@ using Windows.Storage.Pickers;
 using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Shapes;
 using Windows.UI.Xaml.Navigation;
-using Microsoft.Graphics.Canvas;
-using Microsoft.Graphics.Canvas.UI.Xaml;
 using AudioVisualizerPlayer.Services;
 
 namespace AudioVisualizerPlayer
@@ -17,15 +17,39 @@ namespace AudioVisualizerPlayer
         private PlaybackService _playback;
         private VisualizerService _visualizer;
 
+        private const int BarCount = 40;
+        private Rectangle[] _barRectangles;
+
         // Последние уровни баров — обновляются в фоновом потоке (QuantumStarted),
-        // читаются в потоке отрисовки CanvasControl. float[] присваивается атомарно,
-        // поэтому отдельная блокировка не нужна.
-        private float[] _barLevels = new float[40];
+        // читаются при обновлении Height каждого Rectangle. float[] присваивается
+        // атомарно, поэтому отдельная блокировка не нужна.
+        private float[] _barLevels = new float[BarCount];
 
         public MainPage()
         {
             InitializeComponent();
+            CreateVisualizerBars();
             Loaded += MainPage_Loaded;
+        }
+
+        private void CreateVisualizerBars()
+        {
+            _barRectangles = new Rectangle[BarCount];
+            var accentBrush = new SolidColorBrush(Color.FromArgb(255, 0x00, 0xA2, 0xE8));
+
+            for (int i = 0; i < BarCount; i++)
+            {
+                var rect = new Rectangle
+                {
+                    Width = 300.0 / BarCount - 3,
+                    Height = 4, // стартовая минимальная высота
+                    Fill = accentBrush,
+                    Margin = new Windows.UI.Xaml.Thickness(1, 0, 2, 0),
+                    VerticalAlignment = Windows.UI.Xaml.VerticalAlignment.Bottom
+                };
+                _barRectangles[i] = rect;
+                VisualizerPanel.Children.Add(rect);
+            }
         }
 
         private async void MainPage_Loaded(object sender, Windows.UI.Xaml.RoutedEventArgs e)
@@ -72,10 +96,23 @@ namespace AudioVisualizerPlayer
             _visualizer?.Dispose();
             _visualizer = new VisualizerService();
             await _visualizer.InitializeAsync(file);
-            _visualizer.LevelsChanged += (s, bars) => _barLevels = bars;
+            _visualizer.LevelsChanged += OnLevelsChanged;
             _visualizer.Start();
+        }
 
-            VisualizerCanvas.Invalidate();
+        private async void OnLevelsChanged(object sender, float[] bars)
+        {
+            _barLevels = bars;
+            // LevelsChanged прилетает из фонового потока AudioGraph — трогать
+            // элементы UI (Rectangle.Height) можно только из UI-потока.
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                for (int i = 0; i < BarCount && i < bars.Length; i++)
+                {
+                    double h = Math.Max(4.0, bars[i] * 70.0);
+                    _barRectangles[i].Height = h;
+                }
+            });
         }
 
         private void PlayPauseButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
@@ -102,39 +139,6 @@ namespace AudioVisualizerPlayer
                     ? Symbol.Pause
                     : Symbol.Play;
             });
-        }
-
-        // --- Визуализатор: отрисовка баров ---
-        private void VisualizerCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
-        {
-            var levels = _barLevels;
-            if (levels == null || levels.Length == 0) return;
-
-            float canvasWidth = (float)sender.ActualWidth;
-            float canvasHeight = (float)sender.ActualHeight;
-
-            int barCount = levels.Length;
-            float gap = 3f;
-            float barWidth = (canvasWidth - gap * (barCount - 1)) / barCount;
-
-            var accent = Color.FromArgb(255, 0x00, 0xA2, 0xE8);
-            var accentLight = Color.FromArgb(255, 0x6F, 0xE0, 0xFF);
-
-            for (int i = 0; i < barCount; i++)
-            {
-                float h = Math.Max(4f, levels[i] * canvasHeight);
-                float x = i * (barWidth + gap);
-                float y = canvasHeight - h;
-
-                // Простой вертикальный градиент имитируем двумя прямоугольниками,
-                // чтобы не создавать CanvasLinearGradientBrush на каждый Draw —
-                // для честного градиента вынесите brush в CanvasControl.CreateResources.
-                args.DrawingSession.FillRectangle(x, y, barWidth, h * 0.5f, accentLight);
-                args.DrawingSession.FillRectangle(x, y + h * 0.5f, barWidth, h * 0.5f, accent);
-            }
-
-            // Перерисовываем непрерывно, пока страница активна
-            sender.Invalidate();
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)

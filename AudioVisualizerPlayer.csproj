@@ -922,7 +922,8 @@
        При обычной установке через Visual Studio Package Manager эти строки
        NuGet дописывает в csproj сам; при ручном/CI-сценарии их нужно иметь здесь. -->
   <Import Project="$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.targets" Condition="Exists('$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.targets')" />
-  <Import Project="$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets" Condition="Exists('$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets')" />
+  <!-- Win2D временно отключён для диагностики краша на устройстве (см. MainPage.xaml/.cs) -->
+  <!-- <Import Project="$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets" Condition="Exists('$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets')" /> -->
 
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
@@ -932,7 +933,10 @@
            Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.props'))" />
     <Error Condition="!Exists('$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.targets')"
            Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.targets'))" />
+    <!-- Проверка Win2D.uwp.targets отключена вместе с самим импортом (см. выше) -->
+    <!--
     <Error Condition="!Exists('$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets')"
            Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets'))" />
+    -->
   </Target>
 </Project>

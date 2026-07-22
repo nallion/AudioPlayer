@@ -2,7 +2,6 @@
     x:Class="AudioVisualizerPlayer.MainPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:canvas="using:Microsoft.Graphics.Canvas.UI.Xaml"
     Background="{StaticResource AppBackgroundBrush}">
 
     <Grid>
@@ -35,12 +34,16 @@
             <TextBlock x:Name="TrackArtistText" Text="Aurora Waves" FontSize="14"
                        Foreground="{StaticResource AppDimBrush}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
 
-            <!-- ВИЗУАЛИЗАТОР: Win2D CanvasControl, перерисовывается в Draw-обработчике
-                 на основе последних уровней от VisualizerService -->
-            <canvas:CanvasControl x:Name="VisualizerCanvas"
-                                   Height="70" Width="300"
-                                   Margin="0,22,0,8"
-                                   Draw="VisualizerCanvas_Draw"/>
+            <!-- ДИАГНОСТИЧЕСКАЯ ВЕРСИЯ ВИЗУАЛИЗАТОРА: обычные XAML Rectangle вместо
+                 Win2D CanvasControl. Проверяем гипотезу, что краш даёт нативный код
+                 Win2D (access violation, который не ловится ни try/catch, ни
+                 Application.UnhandledException — оба они видят только managed
+                 исключения). StackPanel заполняется прямоугольниками в code-behind,
+                 их Height обновляется на каждый LevelsChanged из VisualizerService. -->
+            <StackPanel x:Name="VisualizerPanel" Orientation="Horizontal"
+                        VerticalAlignment="Bottom"
+                        Height="70" Width="300"
+                        Margin="0,22,0,8"/>
         </StackPanel>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="22,0,22,6">
