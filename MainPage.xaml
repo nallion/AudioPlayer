@@ -54,11 +54,17 @@
             <Button x:Name="PreviousButton" Click="PreviousButton_Click" Background="Transparent" BorderThickness="0">
                 <SymbolIcon Symbol="Previous" Foreground="White"/>
             </Button>
-            <Button x:Name="PlayPauseButton" Click="PlayPauseButton_Click"
-                    Width="64" Height="64" CornerRadius="32"
-                    BorderBrush="{StaticResource AppAccentBrush}" BorderThickness="2" Background="Transparent">
-                <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" Foreground="{StaticResource AppAccentBrush}"/>
-            </Button>
+            <Grid Width="64" Height="64">
+                <!-- Ellipse вместо Button.CornerRadius: свойство CornerRadius на Button
+                     требует UniversalApiContract v7 (SDK 17763+), а нам нужно работать
+                     начиная с 1703 (build 15063). Ellipse поддерживается с самых первых
+                     версий UWP, поэтому кольцо рисуем им, а Button снизу — только для клика. -->
+                <Ellipse Width="64" Height="64" Stroke="{StaticResource AppAccentBrush}" StrokeThickness="2" Fill="Transparent"/>
+                <Button x:Name="PlayPauseButton" Click="PlayPauseButton_Click"
+                        Width="64" Height="64" Background="Transparent" BorderThickness="0">
+                    <SymbolIcon x:Name="PlayPauseIcon" Symbol="Play" Foreground="{StaticResource AppAccentBrush}"/>
+                </Button>
+            </Grid>
             <Button x:Name="NextButton" Click="NextButton_Click" Background="Transparent" BorderThickness="0">
                 <SymbolIcon Symbol="Next" Foreground="White"/>
             </Button>
