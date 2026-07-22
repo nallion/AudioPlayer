@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>uap10.0.17763</TargetFramework>
+    <TargetPlatformMinVersion>10.0.16299.0</TargetPlatformMinVersion>
+    <RootNamespace>AudioVisualizerPlayer</RootNamespace>
+    <AssemblyName>AudioVisualizerPlayer</AssemblyName>
+    <DefaultLanguage>ru-RU</DefaultLanguage>
+    <Platforms>x86;x64;ARM</Platforms>
+    <RuntimeIdentifiers>win10-x86;win10-x64;win10-arm</RuntimeIdentifiers>
+    <UseWinUI>false</UseWinUI>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Win2D — нужен для CanvasControl, на котором рисуется визуализатор -->
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.1.1" />
+    <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform" Version="6.2.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AppxManifest Include="Package.appxmanifest">
+      <SubType>Designer</SubType>
+    </AppxManifest>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\**\*.png" />
+  </ItemGroup>
+
+</Project>

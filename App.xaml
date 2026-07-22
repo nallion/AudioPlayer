@@ -1,0 +1,16 @@
+<Application
+    x:Class="AudioVisualizerPlayer.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- Акцентный цвет — берём из мокапа, не завязываемся на системный Accent,
+                 т.к. хотим одинаковый вид независимо от темы пользователя -->
+            <Color x:Key="AppAccentColor">#FF00A2E8</Color>
+            <SolidColorBrush x:Key="AppAccentBrush" Color="{StaticResource AppAccentColor}"/>
+            <SolidColorBrush x:Key="AppDimBrush" Color="#FF8A8A8A"/>
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FF000000"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

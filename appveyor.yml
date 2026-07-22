@@ -1,0 +1,67 @@
+version: 1.0.{build}
+
+# UWP собирается только на Windows-образах с установленным Windows 10 SDK.
+# На образе VS2017 доступен Windows 10 SDK максимум 10.0.17763 (Fall Creators/April
+# Update поколение) — MSBuild там тоже 15.x, а не 16.x, как на VS2019.
+# Из-за этого TargetFramework/TargetPlatformVersion в .csproj и манифесте
+# ограничены 10.0.17763, иначе сборка упадёт с "SDK not found".
+image: Visual Studio 2017
+
+# Матрица платформ — под Windows Phone/Mobile ARM интересен, но обычно
+# в CI достаточно x86/x64/ARM для проверки, что решение собирается.
+# ARM64-таргет для UWP появился в тулчейне позже VS2017 (стабильно — с VS2019),
+# поэтому в матрице для этого образа оставляем только x86/x64/ARM.
+platform:
+  - x86
+  - x64
+  - ARM
+
+configuration:
+  - Release
+
+install:
+  # Восстанавливаем NuGet-пакеты (Win2D и UWP toolchain) перед сборкой
+  - cmd: nuget restore AudioVisualizerPlayer.sln
+
+before_build:
+  - cmd: nuget restore AudioVisualizerPlayer.sln
+
+build:
+  project: AudioVisualizerPlayer.sln
+  parallel: true
+  verbosity: minimal
+
+build_script:
+  - cmd: >-
+      msbuild AudioVisualizerPlayer.sln
+      /p:Configuration=%CONFIGURATION%
+      /p:Platform=%PLATFORM%
+      /p:AppxBundlePlatforms="%PLATFORM%"
+      /p:AppxBundle=Never
+      /p:UapAppxPackageBuildMode=SideloadOnly
+      /p:AppxPackageSigningEnabled=false
+      /verbosity:minimal
+
+# Складываем готовые .appx/.appxbundle и .appxupload, если понадобится
+# скачать артефакт для ручной установки на устройство.
+artifacts:
+  - path: '**\*.appx'
+    name: appx
+  - path: '**\*.appxbundle'
+    name: appxbundle
+  - path: '**\*.appxupload'
+    name: appxupload
+
+# ARM-сборка не запускается на CI-раннере, только компилируется —
+# юнит-тестов в проекте пока нет, поэтому тестовый шаг не настроен.
+test: off
+
+# Кэшируем NuGet-пакеты между сборками, чтобы не тянуть Win2D каждый раз заново
+cache:
+  - packages -> **\packages.config, AudioVisualizerPlayer.csproj
+
+matrix:
+  # ARM-сборки на Debug редко нужны для проверки — экономим минуты CI
+  exclude:
+    - platform: ARM
+      configuration: Debug
