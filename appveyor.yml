@@ -88,7 +88,7 @@ after_build:
   # файл понимает, в отличие от .msix/.msixbundle.
   - cmd: >-
       "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x86\makeappx.exe"
-      unpack /p "AppPackages\AudioVisualizerPlayer_1.0.0.0_Test\AudioVisualizerPlayer_1.0.0.0_%PLATFORM%.msix"
+      unpack /p "AppPackages\AudioVisualizerPlayer_1.0.0.0_%PLATFORM%_Test\AudioVisualizerPlayer_1.0.0.0_%PLATFORM%.msix"
       /d unpacked_appx /o
   - cmd: >-
       "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x86\makeappx.exe"
