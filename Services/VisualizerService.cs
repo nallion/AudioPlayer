@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using System.Threading.Tasks;
+using Windows.Media;
 using Windows.Media.Audio;
 using Windows.Media.Render;
 using Windows.Storage;
@@ -59,7 +60,7 @@ namespace AudioVisualizerPlayer.Services
 
         private void OnQuantumStarted(AudioGraph sender, object args)
         {
-            AudioFrame frame = _frameOutput.GetFrame();
+            Windows.Media.AudioFrame frame = _frameOutput.GetFrame();
             float[] samples = ExtractSamples(frame);
             if (samples == null || samples.Length < FftSize) return;
 
@@ -73,7 +74,7 @@ namespace AudioVisualizerPlayer.Services
             LevelsChanged?.Invoke(this, bars);
         }
 
-        private unsafe float[] ExtractSamples(AudioFrame frame)
+        private unsafe float[] ExtractSamples(Windows.Media.AudioFrame frame)
         {
             using (var buffer = frame.LockBuffer(Windows.Media.AudioBufferAccessMode.Read))
             using (var reference = buffer.CreateReference())
