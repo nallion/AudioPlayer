@@ -52,8 +52,8 @@ before_build:
   # facade-сборок (System.Runtime.dll и т.п.) — они должны стоять на машине вместе
   # с компонентом Windows 10 SDK / "Universal Windows Platform tools". Проверяем,
   # установлена ли нужная папка с facade-сборками для .NETCore.
-  - cmd: if exist "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1" (echo FOUND .NETCore v4.5.1 facades && dir "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1") else (echo MISSING: .NETCore v4.5.1 facade folder)
-  - cmd: if exist "C:\Program Files (x86)\Windows Kits\10\References" (dir "C:\Program Files (x86)\Windows Kits\10\References") else (echo MISSING: Windows Kits 10 References folder)
+  - cmd: if exist "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1" (echo FOUND .NETCore v4.5.1 facades && dir "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1") else (echo MISSING .NETCore v4.5.1 facade folder)
+  - cmd: if exist "C:\Program Files (x86)\Windows Kits\10\References" (dir "C:\Program Files (x86)\Windows Kits\10\References") else (echo MISSING Windows Kits 10 References folder)
 
 build:
   project: AudioVisualizerPlayer.sln
