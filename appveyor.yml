@@ -29,12 +29,9 @@ image: Visual Studio 2017
 # ARM64-таргет для UWP появился в тулчейне позже VS2017 (стабильно — с VS2019),
 # поэтому в матрице для этого образа оставляем только x86/x64/ARM.
 platform:
-  - x86
-  - x64
   - ARM
 
 configuration:
-  - Debug
   - Release
 
 install:
