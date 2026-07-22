@@ -79,21 +79,9 @@ build_script:
       /p:AppxPackageSigningEnabled=false
       /verbosity:minimal
 
-after_build:
-  - cmd: dir /s /b *.msix
-  # MSIX и APPX — один и тот же ZIP-контейнер (AppxManifest.xml внутри),
-  # просто makeappx.exe версии 17763 по умолчанию называет результат .msix.
-  # Распаковываем и запаковываем обратно тем же makeappx.exe, но явно
-  # указывая расширение .appx — телефон Windows 10 Mobile 1703 такой
-  # файл понимает, в отличие от .msix/.msixbundle.
-  - cmd: >-
-      "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x86\makeappx.exe"
-      unpack /p "AppPackages\AudioVisualizerPlayer_1.0.0.0_%PLATFORM%_Test\AudioVisualizerPlayer_1.0.0.0_%PLATFORM%.msix"
-      /d unpacked_appx /o
-  - cmd: >-
-      "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x86\makeappx.exe"
-      pack /d unpacked_appx
-      /p AudioVisualizerPlayer_1.0.0.0_%PLATFORM%.appx /o
+# Без .NET Native (UseDotNetNativeToolchain=false) MSBuild сам собирает
+# классический .appx напрямую (см. AppPackages\..._Test\...ARM.appx) —
+# отдельный шаг распаковки/перепаковки .msix→.appx больше не нужен.
 
 # Складываем готовые пакеты, если понадобится скачать артефакт для ручной
 # установки на устройство. Современный MSBuild с этими настройками собирает
