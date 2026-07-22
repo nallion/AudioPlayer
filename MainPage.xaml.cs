@@ -71,12 +71,12 @@ namespace AudioVisualizerPlayer
 
         private void PreviousButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
-            _playback.PreviousRequested?.Invoke(this, EventArgs.Empty);
+            _playback.RaisePreviousRequested();
         }
 
         private void NextButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
-            _playback.NextRequested?.Invoke(this, EventArgs.Empty);
+            _playback.RaiseNextRequested();
         }
 
         private async void OnPlaybackStateChanged(object sender, MediaPlaybackState state)

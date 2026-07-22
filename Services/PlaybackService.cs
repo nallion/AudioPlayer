@@ -76,6 +76,12 @@ namespace AudioVisualizerPlayer.Services
         public event EventHandler NextRequested;
         public event EventHandler PreviousRequested;
 
+        // Публичные методы-триггеры: событие нельзя инициировать (Invoke) снаружи
+        // объявляющего класса — только через += / -=. Кнопки Next/Prev в UI
+        // должны вызывать именно эти методы, а не трогать событие напрямую.
+        public void RaiseNextRequested() => NextRequested?.Invoke(this, EventArgs.Empty);
+        public void RaisePreviousRequested() => PreviousRequested?.Invoke(this, EventArgs.Empty);
+
         private void OnSmtcButtonPressed(SystemMediaTransportControls sender, SystemMediaTransportControlsButtonPressedEventArgs args)
         {
             // Обработчик вызывается в фоновом потоке — UI трогать напрямую нельзя,

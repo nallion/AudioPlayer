@@ -44,7 +44,7 @@ namespace AudioVisualizerPlayer.Services
             if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось открыть файл для анализа: " + fileInputResult.Status);
 
-            _fileInput = fileInputResult.FileNode;
+            _fileInput = fileInputResult.FileInputNode;
 
             // Важно: НЕ подключаем этот граф к звуковому устройству (DeviceOutputNode) —
             // звук уже играет через MediaPlayer. Этот граф существует только для анализа,
