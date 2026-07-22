@@ -90,6 +90,22 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Стандартный набор framework-ссылок из шаблона "Blank App (Universal Windows)".
+         Без этого блока (а не только .props/.targets NuGet-пакета) XamlCompiler
+         не может развернуть цепочку facade-сборок, включая System.Runtime — именно
+         это и было причиной WMC1006, даже когда импорты пакета уже подключены верно. -->
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Serialization" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
