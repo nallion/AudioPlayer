@@ -20,6 +20,29 @@ namespace AudioVisualizerPlayer
         {
             InitializeComponent();
             Suspending += OnSuspending;
+            UnhandledException += OnUnhandledException;
+        }
+
+        private async void OnUnhandledException(object sender, Windows.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            // e.Handled = true не даёт процессу мгновенно рухнуть — успеваем записать
+            // причину в файл. Смотреть его можно через Device Portal → File Explorer →
+            // LocalAppData → AudioVisualizerPlayer → LocalState → crash.log,
+            // либо через WDRT. Это единственный надёжный способ узнать причину
+            // краша, если он происходит ДО того, как успела открыться MainPage
+            // (например, в конструкторе PlaybackService/MediaPlayer).
+            e.Handled = true;
+            try
+            {
+                var file = await Windows.Storage.ApplicationData.Current.LocalFolder.CreateFileAsync(
+                    "crash.log", Windows.Storage.CreationCollisionOption.ReplaceExisting);
+                await Windows.Storage.FileIO.WriteTextAsync(file, e.Exception?.ToString() ?? e.Message);
+            }
+            catch
+            {
+                // Если и запись лога не удалась — ничего не поделать, но хотя бы
+                // не роняем процесс молча за счёт e.Handled = true выше.
+            }
         }
 
         protected override void OnLaunched(LaunchActivatedEventArgs e)

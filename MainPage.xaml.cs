@@ -30,14 +30,28 @@ namespace AudioVisualizerPlayer
 
         private async void MainPage_Loaded(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
-            _playback = App.Playback;
-            _playback.PlaybackStateChanged += OnPlaybackStateChanged;
-            _playback.NextRequested += (s, a) => { /* переключение трека в плейлисте */ };
-            _playback.PreviousRequested += (s, a) => { /* переключение трека в плейлисте */ };
+            try
+            {
+                _playback = App.Playback;
+                _playback.PlaybackStateChanged += OnPlaybackStateChanged;
+                _playback.NextRequested += (s, a) => { /* переключение трека в плейлисте */ };
+                _playback.PreviousRequested += (s, a) => { /* переключение трека в плейлисте */ };
 
-            // Для демонстрации — выбор файла через FilePicker.
-            // В реальном приложении здесь будет плейлист/библиотека.
-            await LoadDemoTrackAsync();
+                // Для демонстрации — выбор файла через FilePicker.
+                // В реальном приложении здесь будет плейлист/библиотека.
+                await LoadDemoTrackAsync();
+            }
+            catch (Exception ex)
+            {
+                // КРИТИЧЕСКИ ВАЖНО: MainPage_Loaded — это async void. Исключение отсюда
+                // НЕЛЬЗЯ поймать снаружи (в отличие от async Task) — оно летит прямиком
+                // в необработанный обработчик приложения и мгновенно валит процесс без
+                // единого сообщения на экране. Пока не найдём точную причину падения,
+                // ловим всё здесь и показываем текст ошибки диалогом, чтобы понять,
+                // что реально пошло не так на устройстве.
+                var dialog = new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка при запуске");
+                await dialog.ShowAsync();
+            }
         }
 
         private async System.Threading.Tasks.Task LoadDemoTrackAsync()
