@@ -48,6 +48,12 @@ before_build:
   # что реально лежит в packages\ и под какой версией — сверяем с packages.config.
   - cmd: dir /s /b packages\Microsoft.NETCore.UniversalWindowsPlatform.* 2>nul || echo "UniversalWindowsPlatform package NOT restored"
   - cmd: dir /s /b packages\Win2D.uwp.* 2>nul || echo "Win2D.uwp package NOT restored"
+  # ВАЖНО: сам NuGet-пакет Microsoft.NETCore.UniversalWindowsPlatform не содержит
+  # facade-сборок (System.Runtime.dll и т.п.) — они должны стоять на машине вместе
+  # с компонентом Windows 10 SDK / "Universal Windows Platform tools". Проверяем,
+  # установлена ли нужная папка с facade-сборками для .NETCore.
+  - cmd: if exist "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1" (echo FOUND .NETCore v4.5.1 facades && dir "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1") else (echo MISSING: .NETCore v4.5.1 facade folder)
+  - cmd: if exist "C:\Program Files (x86)\Windows Kits\10\References" (dir "C:\Program Files (x86)\Windows Kits\10\References") else (echo MISSING: Windows Kits 10 References folder)
 
 build:
   project: AudioVisualizerPlayer.sln
