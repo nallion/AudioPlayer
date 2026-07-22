@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+
+  <!-- Обязательный .props-импорт этого пакета: он регистрирует пути к facade-сборкам
+       (System.Runtime и т.п.), которые ищет XamlCompiler. Без него WMC1006 вылезает
+       даже при подключённом .targets внизу файла — .targets один эту роль не закрывает. -->
+  <Import Project="$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.props" Condition="Exists('$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.props')" />
   <PropertyGroup Condition="'$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '15.0'">
     <VisualStudioVersion>15.0</VisualStudioVersion>
   </PropertyGroup>
@@ -148,6 +153,8 @@
     <PropertyGroup>
       <ErrorText>Этот проект ссылается на пакеты NuGet, которых нет на этом компьютере. Включите восстановление пакетов NuGet перед сборкой. Отсутствующий файл: {0}</ErrorText>
     </PropertyGroup>
+    <Error Condition="!Exists('$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.props')"
+           Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.props'))" />
     <Error Condition="!Exists('$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.targets')"
            Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\build\Microsoft.NETCore.UniversalWindowsPlatform.targets'))" />
     <Error Condition="!Exists('$(SolutionDir)packages\Win2D.uwp.1.25.0\build\native\Win2D.uwp.targets')"
