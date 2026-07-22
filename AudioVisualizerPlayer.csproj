@@ -90,20 +90,23 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Подключаем ВСЕ facade-сборки из папки пакета одним wildcard-Include,
-         вместо ручного перечисления по одной. Ручной точечный список
-         (mscorlib, System, System.Core, ...) создавал НЕСОГЛАСОВАННЫЙ набор —
-         компилятору не хватало то Math (mscorlib неполный), то WinRT-событий
-         (не было System.Runtime.InteropServices.WindowsRuntime), то async
-         (не было System.Threading.Tasks) и т.д. Это именно то, что должен был
-         сделать .targets-файл пакета автоматически, но не сделал из-за
-         несовпадения версии папки (15138) с нашим TargetPlatformVersion (17763). -->
+    <!-- Явный список с SpecificVersion=False — заставляет MSBuild использовать
+         именно HintPath, а не искать сборку в desktop GAC (что вызывало MSB3270
+         для mscorlib/System.Data/System.Transactions/System.Web при wildcard-варианте). -->
     <_UapFacadeDlls Include="$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\*.dll" />
     <Reference Include="@(_UapFacadeDlls -> '%(Filename)')">
       <HintPath>%(_UapFacadeDlls.FullPath)</HintPath>
       <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
     </Reference>
   </ItemGroup>
+
+  <PropertyGroup>
+    <!-- Полностью отключаем поиск в GAC — только HintPath. Без этого MSBuild
+         на некоторых сборках (mscorlib, System.Data и др.) предпочитал desktop
+         GAC (AMD64) нашему facade из пакета, что и давало MSB3270 под ARM. -->
+    <AssemblySearchPaths>{HintPathFromItem}</AssemblySearchPaths>
+  </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="App.xaml.cs">
