@@ -38,16 +38,13 @@
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
 
-      <Extensions>
-        <!-- Позволяет системе управлять аудио-сессией через SystemMediaTransportControls
-             без отдельной декларации Background Task — актуально для современного
-             Windows.Media.Playback.MediaPlayer API. -->
-        <uap:Extension Category="windows.backgroundTasks" EntryPoint="AudioVisualizerPlayer.App">
-          <uap:BackgroundTasks>
-            <uap:Task Type="audio" />
-          </uap:BackgroundTasks>
-        </uap:Extension>
-      </Extensions>
+      <!-- Отдельной декларации windows.backgroundTasks не нужно: современный
+           Windows.Media.Playback.MediaPlayer вместе с SystemMediaTransportControls
+           продолжает играть в фоне сам по себе, без отдельного класса-обработчика
+           фоновой задачи (это было нужно только для устаревшего паттерна
+           BackgroundMediaPlayer из эпохи Windows Phone 8.1). У нас и класса
+           IBackgroundTask в проекте нет — декларация была лишней и к тому же
+           не проходила валидацию схемы манифеста. -->
     </Application>
   </Applications>
 
