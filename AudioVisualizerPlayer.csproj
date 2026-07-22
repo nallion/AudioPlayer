@@ -134,6 +134,26 @@
       <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.WindowsRuntime.UI.Xaml.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="System.Runtime.Numerics">
+      <!-- Нужна для System.Numerics.Complex в Helpers/FFT.cs — сам тип лежит здесь, а не в System.Numerics.dll -->
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.Numerics.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Runtime.InteropServices">
+      <!-- Нужна для ComImportAttribute/GuidAttribute/InterfaceTypeAttribute в Services/VisualizerService.cs -->
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.InteropServices.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Diagnostics.Tools">
+      <!-- Нужна для GeneratedCodeAttribute в автогенерируемых App.g.i.cs/MainPage.g.i.cs -->
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.Tools.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Diagnostics.Debug">
+      <!-- Нужна для DebuggerNonUserCodeAttribute в автогенерируемых App.g.i.cs/MainPage.g.i.cs -->
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.Debug.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
