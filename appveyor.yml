@@ -60,6 +60,8 @@ before_build:
   # установлена ли нужная папка с facade-сборками для .NETCore.
   - cmd: if exist "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1" (echo FOUND .NETCore v4.5.1 facades && dir "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1") else (echo MISSING .NETCore v4.5.1 facade folder)
   - cmd: if exist "C:\Program Files (x86)\Windows Kits\10\References" (dir "C:\Program Files (x86)\Windows Kits\10\References") else (echo MISSING Windows Kits 10 References folder)
+  - cmd: if exist "C:\Program Files (x86)\Windows Kits\10\bin" (dir "C:\Program Files (x86)\Windows Kits\10\bin") else (echo MISSING Windows Kits 10 bin folder)
+  - cmd: for /r "C:\Program Files (x86)\Windows Kits\10\bin" %%f in (makeappx.exe) do @echo FOUND makeappx at %%f
 
 build:
   project: AudioVisualizerPlayer.sln
