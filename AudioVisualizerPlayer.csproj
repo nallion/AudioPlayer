@@ -90,19 +90,40 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Полный стандартный набор из шаблона "Blank App (Universal Windows)", КРОМЕ
-         System.Data — именно эта ссылка резолвилась как desktop-сборка (AMD64) и
-         конфликтовала с целью ARM (MSB3270). Остальные оставлены: похоже, что часть
-         из них влияет на резолвинг facade-цепочки System.Runtime для XamlCompiler
-         (без них возвращается WMC1006), хотя в коде проекта явно не используется. -->
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Xml" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.Xml.Serialization" />
+    <!-- Явный HintPath на facade-сборки прямо внутри восстановленного NuGet-пакета,
+         вместо надежды на implicit resolution через .props/.targets. Подтверждено
+         логами: файлы реально лежат в ref\uap10.0.15138\ (включая System.Runtime.dll),
+         но implicit resolution их не находит и лезет в desktop GAC — отсюда разом
+         WMC1006, MSB3245 и MSB3277/MSB3270. Явный путь решает всё сразу. -->
+    <Reference Include="mscorlib">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\mscorlib.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Core">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Core.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Runtime">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Xml">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Xml.Linq">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.Linq.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Numerics">
+      <!-- Нужна для System.Numerics.Complex в Helpers/FFT.cs -->
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Numerics.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
