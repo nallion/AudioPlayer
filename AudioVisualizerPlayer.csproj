@@ -90,23 +90,779 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Явный список с SpecificVersion=False — заставляет MSBuild использовать
-         именно HintPath, а не искать сборку в desktop GAC (что вызывало MSB3270
-         для mscorlib/System.Data/System.Transactions/System.Web при wildcard-варианте). -->
-    <_UapFacadeDlls Include="$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\*.dll" />
-    <Reference Include="@(_UapFacadeDlls -> '%(Filename)')">
-      <HintPath>%(_UapFacadeDlls.FullPath)</HintPath>
+    <!-- Полный явный список ВСЕХ facade-сборок из ref\uap10.0.15138\ (сгенерирован
+         по фактическому листингу папки из логов CI). Каждая - отдельный явный
+         Reference с HintPath + SpecificVersion=False. Промежуточные варианты
+         (wildcard-batch, AssemblySearchPaths=HintPathFromItem) ломали то
+         архитектуру (ARM/AMD64 конфликт), то вообще всё резолвение (в т.ч. у
+         Win2D). Этот явный построчный список — то, что реально работало для
+         каждой отдельной сборки на предыдущих шагах; теперь применено ко всем разом. -->
+    <Reference Include="Microsoft.CSharp">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\Microsoft.CSharp.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="Microsoft.VisualBasic">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\Microsoft.VisualBasic.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="Microsoft.Win32.Primitives">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\Microsoft.Win32.Primitives.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="mscorlib">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\mscorlib.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="netstandard">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\netstandard.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.AppContext">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.AppContext.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Buffers">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Buffers.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Collections.Concurrent">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Collections.Concurrent.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Collections">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Collections.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Collections.Immutable">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Collections.Immutable.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Collections.NonGeneric">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Collections.NonGeneric.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Collections.Specialized">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Collections.Specialized.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ComponentModel.Annotations">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ComponentModel.Annotations.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ComponentModel.Composition">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ComponentModel.Composition.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ComponentModel.DataAnnotations">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ComponentModel.DataAnnotations.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ComponentModel">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ComponentModel.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ComponentModel.EventBasedAsync">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ComponentModel.EventBasedAsync.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ComponentModel.Primitives">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ComponentModel.Primitives.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ComponentModel.TypeConverter">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ComponentModel.TypeConverter.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Configuration">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Configuration.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Console">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Console.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Core">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Core.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Data.Common">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Data.Common.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Data">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Data.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Data.SqlClient">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Data.SqlClient.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Diagnostics.Contracts">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.Contracts.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Diagnostics.Debug">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.Debug.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Diagnostics.FileVersionInfo">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.FileVersionInfo.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Diagnostics.Process">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.Process.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Diagnostics.StackTrace">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.StackTrace.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Diagnostics.TextWriterTraceListener">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.TextWriterTraceListener.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Diagnostics.Tools">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.Tools.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Diagnostics.TraceSource">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.TraceSource.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Diagnostics.Tracing">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Diagnostics.Tracing.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Drawing">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Drawing.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Drawing.Primitives">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Drawing.Primitives.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Dynamic.Runtime">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Dynamic.Runtime.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Globalization.Calendars">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Globalization.Calendars.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Globalization">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Globalization.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Globalization.Extensions">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Globalization.Extensions.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.Compression">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.Compression.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.Compression.FileSystem">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.Compression.FileSystem.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.Compression.ZipFile">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.Compression.ZipFile.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.FileSystem">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.FileSystem.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.FileSystem.DriveInfo">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.FileSystem.DriveInfo.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.FileSystem.Primitives">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.FileSystem.Primitives.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.FileSystem.Watcher">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.FileSystem.Watcher.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.IsolatedStorage">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.IsolatedStorage.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.MemoryMappedFiles">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.MemoryMappedFiles.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.Pipes">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.Pipes.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.Ports">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.Ports.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.IO.UnmanagedMemoryStream">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.IO.UnmanagedMemoryStream.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Linq">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Linq.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Linq.Expressions">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Linq.Expressions.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Linq.Parallel">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Linq.Parallel.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Linq.Queryable">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Linq.Queryable.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.Http">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.Http.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.Http.Rtc">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.Http.Rtc.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.HttpListener">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.HttpListener.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.Mail">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.Mail.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.NameResolution">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.NameResolution.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.NetworkInformation">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.NetworkInformation.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.Ping">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.Ping.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.Primitives">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.Primitives.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.Requests">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.Requests.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.Security">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.Security.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.ServicePoint">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.ServicePoint.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.Sockets">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.Sockets.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.WebClient">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.WebClient.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.WebHeaderCollection">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.WebHeaderCollection.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.WebProxy">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.WebProxy.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.WebSockets.Client">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.WebSockets.Client.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Net.WebSockets">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Net.WebSockets.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Numerics">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Numerics.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Numerics.Vectors">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Numerics.Vectors.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Numerics.Vectors.WindowsRuntime">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Numerics.Vectors.WindowsRuntime.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ObjectModel">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ObjectModel.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Reflection.Context">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Reflection.Context.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Reflection.DispatchProxy">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Reflection.DispatchProxy.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Reflection">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Reflection.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Reflection.Extensions">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Reflection.Extensions.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Reflection.Metadata">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Reflection.Metadata.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Reflection.Primitives">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Reflection.Primitives.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Reflection.TypeExtensions">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Reflection.TypeExtensions.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Resources.Reader">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Resources.Reader.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Resources.ResourceManager">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Resources.ResourceManager.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Resources.Writer">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Resources.Writer.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.CompilerServices.VisualC">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.CompilerServices.VisualC.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.Extensions">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.Extensions.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.Handles">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.Handles.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.InteropServices">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.InteropServices.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.InteropServices.RuntimeInformation">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.InteropServices.RuntimeInformation.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.InteropServices.WindowsRuntime">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.InteropServices.WindowsRuntime.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.Numerics">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.Numerics.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.Serialization">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.Serialization.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.Serialization.Formatters">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.Serialization.Formatters.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.Serialization.Json">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.Serialization.Json.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.Serialization.Primitives">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.Serialization.Primitives.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.Serialization.Xml">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.Serialization.Xml.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.WindowsRuntime">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.WindowsRuntime.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Runtime.WindowsRuntime.UI.Xaml">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Runtime.WindowsRuntime.UI.Xaml.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.AccessControl">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.AccessControl.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.Claims">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.Claims.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Algorithms">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.Cryptography.Algorithms.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Cng">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.Cryptography.Cng.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Csp">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.Cryptography.Csp.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Encoding">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.Cryptography.Encoding.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Primitives">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.Cryptography.Primitives.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.X509Certificates">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.Cryptography.X509Certificates.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.Principal">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.Principal.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.Principal.Windows">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.Principal.Windows.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Security.SecureString">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Security.SecureString.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ServiceModel">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ServiceModel.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ServiceModel.Duplex">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ServiceModel.Duplex.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ServiceModel.Http">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ServiceModel.Http.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ServiceModel.NetTcp">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ServiceModel.NetTcp.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ServiceModel.Primitives">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ServiceModel.Primitives.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ServiceModel.Security">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ServiceModel.Security.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ServiceModel.Web">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ServiceModel.Web.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ServiceProcess">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ServiceProcess.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Text.Encoding.CodePages">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Text.Encoding.CodePages.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Text.Encoding">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Text.Encoding.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Text.Encoding.Extensions">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Text.Encoding.Extensions.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Text.RegularExpressions">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Text.RegularExpressions.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Threading">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Threading.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Threading.Overlapped">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Threading.Overlapped.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Threading.Tasks.Dataflow">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Threading.Tasks.Dataflow.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Threading.Tasks">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Threading.Tasks.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Threading.Tasks.Parallel">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Threading.Tasks.Parallel.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Threading.Thread">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Threading.Thread.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Threading.ThreadPool">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Threading.ThreadPool.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Threading.Timer">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Threading.Timer.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Transactions">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Transactions.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Transactions.Local">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Transactions.Local.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.ValueTuple">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.ValueTuple.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Web">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Web.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Web.HttpUtility">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Web.HttpUtility.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Windows">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Windows.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Xml">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Xml.Linq">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.Linq.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Xml.ReaderWriter">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.ReaderWriter.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Xml.Serialization">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.Serialization.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Xml.XDocument">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.XDocument.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Xml.XmlDocument">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.XmlDocument.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Xml.XmlSerializer">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.XmlSerializer.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Xml.XPath">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.XPath.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="System.Xml.XPath.XDocument">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\System.Xml.XPath.XDocument.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="WindowsBase">
+      <HintPath>$(SolutionDir)packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14\ref\uap10.0.15138\WindowsBase.dll</HintPath>
       <Private>False</Private>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
   </ItemGroup>
-
-  <PropertyGroup>
-    <!-- Полностью отключаем поиск в GAC — только HintPath. Без этого MSBuild
-         на некоторых сборках (mscorlib, System.Data и др.) предпочитал desktop
-         GAC (AMD64) нашему facade из пакета, что и давало MSB3270 под ARM. -->
-    <AssemblySearchPaths>{HintPathFromItem}</AssemblySearchPaths>
-  </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="App.xaml.cs">
