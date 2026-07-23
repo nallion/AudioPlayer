@@ -176,7 +176,7 @@ namespace AudioVisualizerPlayer
                 // заранее (с запасом), до того как она успеет "умереть" сама.
                 // Звук (MediaPlayer) это не задевает — независимый пайплайн.
                 _visualizerRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
-                _visualizerRefreshTimer.Tick += async (s, e) => await RefreshVisualizerAsync();
+                _visualizerRefreshTimer.Tick += async (timerSender, timerArgs) => await RefreshVisualizerAsync();
                 _visualizerRefreshTimer.Start();
 
                 // Позиция и длительность — раз в 500мс опрашиваем
