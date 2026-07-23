@@ -96,19 +96,21 @@ namespace AudioVisualizerPlayer.Services
             // Сначала пробуем БЕЗ явного формата — это сохраняет нормальное
             // поведение "следования за устройством по умолчанию" (наушники,
             // подключённые ВО ВРЕМЯ воспроизведения, подхватываются на лету).
-            // Только если это упадёт (холодный старт с уже подключёнными
-            // наушниками — см. комментарий ниже), пересоздаём граф с явным
-            // PCM-форматом как запасной вариант. Раньше явный формат стоял
-            // всегда, и это чинило холодный старт, но ломало переключение
-            // на лету — теперь он используется только как fallback.
+            // Если это упадёт (холодный старт с уже подключёнными наушниками),
+            // пробуем по очереди несколько распространённых частот
+            // дискретизации явно — 48000, потом 44100. Раньше была жёстко
+            // зашита ТОЛЬКО 44100, и если реальный DAC наушников на этом
+            // устройстве нативно работает на 48000, вынужденное пересэмплирование
+            // на лету могло быть причиной щелчков/потрескиваний в звуке.
+            int?[] sampleRatesToTry = { null, 48000, 44100 };
             Exception lastError = null;
-            for (int attempt = 1; attempt <= 2; attempt++)
+            for (int attempt = 1; attempt <= sampleRatesToTry.Length; attempt++)
             {
-                bool useExplicitFormat = attempt > 1;
-                AudioVisualizerPlayer.Helpers.Diag.Log($"Попытка {attempt}, useExplicitFormat={useExplicitFormat} — начало");
+                int? sampleRate = sampleRatesToTry[attempt - 1];
+                AudioVisualizerPlayer.Helpers.Diag.Log($"Попытка {attempt}, sampleRate={(sampleRate.HasValue ? sampleRate.Value.ToString() : "авто")} — начало");
                 try
                 {
-                    await BuildGraphAsync(file, useExplicitFormat);
+                    await BuildGraphAsync(file, sampleRate);
                     lastError = null;
                     AudioVisualizerPlayer.Helpers.Diag.Log($"Попытка {attempt} — УСПЕХ");
                     break;
@@ -127,9 +129,9 @@ namespace AudioVisualizerPlayer.Services
 
             if (lastError != null)
             {
-                AudioVisualizerPlayer.Helpers.Diag.Log("Обе попытки провалились, бросаем исключение наверх");
+                AudioVisualizerPlayer.Helpers.Diag.Log("Все попытки провалились, бросаем исключение наверх");
                 throw new InvalidOperationException(
-                    $"Не удалось создать аудио-граф ни обычным способом, ни с явным форматом (граф-попытки за сессию: {_graphCreationCount}): "
+                    $"Не удалось создать аудио-граф ни одним из способов (граф-попытки за сессию: {_graphCreationCount}): "
                     + lastError.Message, lastError);
             }
 
@@ -156,18 +158,16 @@ namespace AudioVisualizerPlayer.Services
 
         /// <summary>
         /// Собирает граф целиком: AudioGraph → FileInput → Submix → DeviceOutput.
-        /// useExplicitFormat=false — обычный путь, авто-согласование формата
-        /// (сохраняет следование за устройством по умолчанию). true — запасной
-        /// путь с явным PCM 44100/2/16, который чинит холодный старт с уже
-        /// подключёнными наушниками, но ценой отключения автослежения —
-        /// поэтому используется только как fallback после неудачной попытки.
+        /// sampleRate == null — обычный путь, авто-согласование формата
+        /// (сохраняет следование за устройством по умолчанию). Значение —
+        /// явный PCM нужной частоты/2 канала/16 бит, как запасной вариант.
         /// </summary>
-        private async Task BuildGraphAsync(StorageFile file, bool useExplicitFormat)
+        private async Task BuildGraphAsync(StorageFile file, int? sampleRate)
         {
             var settings = new AudioGraphSettings(AudioRenderCategory.Media);
-            if (useExplicitFormat)
+            if (sampleRate.HasValue)
             {
-                settings.EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(44100, 2, 16);
+                settings.EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm((uint)sampleRate.Value, 2, 16);
             }
 
             var graphResult = await AudioGraph.CreateAsync(settings);
