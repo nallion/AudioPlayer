@@ -127,8 +127,11 @@ namespace AudioVisualizerPlayer
                 await _visualizer.InitializeAsync(file);
                 _visualizer.LevelsChanged += OnLevelsChanged;
                 WriteUiDiagnostics("Подписка на LevelsChanged выполнена (ШАГ 4).");
-                _visualizer.Start();
-                WriteUiDiagnostics("_visualizer.Start() вызван из MainPage (ШАГ 4).");
+                // Start() здесь больше не вызываем — теперь единственный источник
+                // запуска/остановки анализа это OnPlaybackStateChanged, который
+                // сработает сразу следом за _playback.Play() в вызывающем коде.
+                // Так Start() гарантированно вызывается ровно один раз и всегда
+                // синхронно с реальным состоянием MediaPlayer.
             }
             catch (Exception ex)
             {
@@ -274,10 +277,23 @@ namespace AudioVisualizerPlayer
             _playback.RaiseNextRequested();
         }
 
-        private async void OnPlaybackStateChanged(object sender, MediaPlaybackState state)
+        private void OnPlaybackStateChanged(object sender, MediaPlaybackState state)
         {
-            // PlaybackStateChanged прилетает не из UI-потока — обязательно через Dispatcher
-            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            // Синхронизируем анализирующий AudioGraph с реальным состоянием
+            // MediaPlayer — иначе граф крутит файл сам по себе независимо от
+            // паузы, отсюда и "визуализатор прыгает даже когда аудио на паузе".
+            // Не через Dispatcher — Start()/Stop() у AudioGraph не трогают UI.
+            if (state == MediaPlaybackState.Playing)
+            {
+                _visualizer?.Start();
+            }
+            else
+            {
+                _visualizer?.Stop();
+            }
+
+            // PlayPauseIcon — уже элемент UI, здесь Dispatcher обязателен.
+            var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
                 PlayPauseIcon.Symbol = state == MediaPlaybackState.Playing
                     ? Symbol.Pause
