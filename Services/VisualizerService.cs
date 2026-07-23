@@ -166,12 +166,14 @@ namespace AudioVisualizerPlayer.Services
 
                 Complex[] spectrum = FFT.Transform(chunk);
                 float[] bars = FFT.ToBars(spectrum, BarCount);
+                NormalizeWithAgc(bars);
 
                 if (_quantumCount <= 5)
                 {
                     var handler = LevelsChanged;
                     WriteDiagnostics($"Перед Invoke #{_quantumCount}: LevelsChanged == null: {handler == null}, " +
-                        $"bars[0]={(bars.Length > 0 ? bars[0].ToString() : "N/A")}, bars.Length={bars.Length}");
+                        $"bars[0]={(bars.Length > 0 ? bars[0].ToString() : "N/A")}, bars.Length={bars.Length}, " +
+                        $"_agcMax={_agcMax}");
                 }
 
                 LevelsChanged?.Invoke(this, bars);
@@ -187,6 +189,29 @@ namespace AudioVisualizerPlayer.Services
                     WriteDiagnostics("OnQuantumStarted бросил исключение: " + ex);
                 }
             }
+        }
+
+        // AGC: скользящий максимум амплитуды с медленным затуханием. Раньше
+        // высота бара считалась как fixed avg*4.0 с жёстким потолком 1.0 — из-за
+        // этого басовые/средние частоты почти всегда упирались в максимум разом,
+        // визуально выглядело как "стена" вплотную к верху экрана. Нормализация
+        // относительно скользящего максимума сама подстраивается под громкость
+        // конкретного трека вместо одной захардкоженной константы усиления.
+        private float _agcMax = 0.01f; // не 0 — избегаем деления на ноль в тихом начале трека
+
+        private void NormalizeWithAgc(float[] bars)
+        {
+            float frameMax = 0f;
+            for (int i = 0; i < bars.Length; i++)
+                if (bars[i] > frameMax) frameMax = bars[i];
+
+            // Затухание 0.98 за квант — максимум "плывёт" вниз, если пошёл тихий
+            // участок, но не мгновенно, чтобы не дёргаться на каждой паузе между нотами.
+            _agcMax = Math.Max(frameMax, _agcMax * 0.98f);
+            if (_agcMax < 0.0001f) _agcMax = 0.0001f;
+
+            for (int i = 0; i < bars.Length; i++)
+                bars[i] = Math.Min(1.0f, bars[i] / _agcMax);
         }
 
         private unsafe float[] ExtractSamples(Windows.Media.AudioFrame frame)
