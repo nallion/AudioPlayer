@@ -60,6 +60,16 @@ namespace AudioVisualizerPlayer
                 _playback.PlaybackStateChanged += OnPlaybackStateChanged;
                 _playback.NextRequested += (s, a) => { /* переключение трека в плейлисте */ };
                 _playback.PreviousRequested += (s, a) => { /* переключение трека в плейлисте */ };
+
+                // ВАЖНО: подписываемся здесь, ДО того как LoadAsync/Play вообще
+                // вызовутся. LoadAsync() устанавливает Player.Source, что запускает
+                // открытие медиа асинхронно сразу же — MediaOpened вполне может
+                // успеть сработать раньше, чем мы подпишемся, если сделать это
+                // после LoadDemoTrackAsync()/Play() (так было раньше — из-за этого
+                // ProgressSlider.Maximum никогда не обновлялся с дефолтных 100,
+                // а перемотка считалась от неправильного диапазона).
+                _playback.Player.PlaybackSession.PositionChanged += OnPositionChanged;
+                _playback.Player.MediaOpened += OnMediaOpened;
             }
             catch (Exception ex)
             {
@@ -140,7 +150,6 @@ namespace AudioVisualizerPlayer
         }
 
         private bool _trackLoaded = false;
-        private bool _progressWired = false;
         private bool _isUserDraggingSlider = false;
 
         private void OnMediaOpened(Windows.Media.Playback.MediaPlayer sender, object args)
@@ -198,14 +207,6 @@ namespace AudioVisualizerPlayer
                     await LoadDemoTrackAsync();
                     _trackLoaded = true;
                     _playback.Play(); // автоплей сразу после выбора файла
-
-                    // Прогресс-бар: подписываемся один раз при первой загрузке трека.
-                    if (!_progressWired)
-                    {
-                        _progressWired = true;
-                        _playback.Player.PlaybackSession.PositionChanged += OnPositionChanged;
-                        _playback.Player.MediaOpened += OnMediaOpened;
-                    }
                 }
                 catch (Exception ex)
                 {
