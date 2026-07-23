@@ -1,52 +1,109 @@
 using System;
+using System.Threading.Tasks;
 using Windows.Media;
-using Windows.Media.Playback;
+using Windows.Media.Audio;
+using Windows.Media.Render;
 using Windows.Storage;
 using Windows.Storage.Streams;
 
 namespace AudioVisualizerPlayer.Services
 {
     /// <summary>
-    /// Отвечает за: (1) собственно воспроизведение звука через MediaPlayer,
-    /// которое продолжается в фоне/при заблокированном экране;
-    /// (2) интеграцию с SystemMediaTransportControls — это то, что рисует
-    /// системный UI на лок-скрине и в Action Center (play/pause/next/prev,
-    /// обложка, название трека). Кастомизировать этот системный UI нельзя —
-    /// туда передаются только метаданные.
+    /// Единый AudioGraph на воспроизведение звука. Раньше звук игрался через
+    /// Windows.Media.Playback.MediaPlayer, а анализ спектра — через отдельный,
+    /// независимый AudioGraph, читающий тот же файл заново. Это давало дрейф
+    /// по времени между звуком и визуализацией (два независимых чтения одного
+    /// файла со своим таймингом каждое). Теперь один AudioGraph и один
+    /// AudioFileInputNode — звук идёт в AudioDeviceOutputNode, а анализ
+    /// (VisualizerService) подключается вторым исходящим соединением от ТОГО ЖЕ
+    /// AudioFileInputNode. Дрейфа больше нет в принципе — это один и тот же
+    /// поток данных, а не два независимых.
+    ///
+    /// MediaPlayer убран — вместе с ним ушли его автоматические
+    /// SystemMediaTransportControls и MediaPlaybackSession.PositionChanged.
+    /// Оба теперь реализованы вручную: SMTC заводится напрямую через
+    /// SystemMediaTransportControls.GetForCurrentView(), а позиция для
+    /// прогресс-бара читается через AudioFileInputNode.Position по таймеру
+    /// (см. MainPage) вместо push-события.
     /// </summary>
     public class PlaybackService
     {
-        public MediaPlayer Player { get; }
+        private AudioGraph _graph;
+        private AudioFileInputNode _fileInput;
+        private AudioDeviceOutputNode _deviceOutput;
+
         public SystemMediaTransportControls Smtc { get; }
 
-        public event EventHandler<MediaPlaybackState> PlaybackStateChanged;
+        /// <summary>true — сейчас играет, false — на паузе/остановлено.</summary>
+        public event EventHandler<bool> PlaybackStateChanged;
+
+        public bool IsPlaying { get; private set; }
+
+        /// <summary>
+        /// Доступ к общему графу и файловому узлу — именно за это и затевался
+        /// весь рефакторинг: VisualizerService подключает свой FrameOutputNode
+        /// вторым исходящим соединением от этого же FileInput, вместо того чтобы
+        /// открывать файл заново в отдельном графе.
+        /// </summary>
+        public AudioGraph Graph => _graph;
+        public AudioFileInputNode FileInput => _fileInput;
+
+        public TimeSpan Position
+        {
+            get => _fileInput?.Position ?? TimeSpan.Zero;
+            set { if (_fileInput != null) _fileInput.Seek(value); }
+        }
+
+        public TimeSpan Duration => _fileInput?.Duration ?? TimeSpan.Zero;
 
         public PlaybackService()
         {
-            Player = new MediaPlayer
-            {
-                AutoPlay = false,
-                // CommandManager сам умеет реагировать на аппаратные кнопки
-                // (гарнитура, Bluetooth) — не нужно ловить их вручную.
-            };
-
-            Smtc = Player.SystemMediaTransportControls;
+            Smtc = SystemMediaTransportControls.GetForCurrentView();
             Smtc.IsPlayEnabled = true;
             Smtc.IsPauseEnabled = true;
             Smtc.IsNextEnabled = true;
             Smtc.IsPreviousEnabled = true;
-
             Smtc.ButtonPressed += OnSmtcButtonPressed;
-            Player.PlaybackSession.PlaybackStateChanged += (s, a) =>
-                PlaybackStateChanged?.Invoke(this, s.PlaybackState);
         }
 
         /// <summary>
-        /// Загружает трек и одновременно обновляет метаданные для лок-скрина.
+        /// Загружает трек: создаёт AudioGraph, файловый узел и узел вывода
+        /// на динамики, соединяет их, и обновляет метаданные для лок-скрина.
         /// </summary>
-        public async System.Threading.Tasks.Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null)
+        public async Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null)
         {
-            Player.Source = Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
+            // Освобождаем предыдущий граф, если уже что-то играло
+            DisposeGraph();
+
+            var settings = new AudioGraphSettings(AudioRenderCategory.Media);
+            var graphResult = await AudioGraph.CreateAsync(settings);
+            if (graphResult.Status != AudioGraphCreationStatus.Success)
+                throw new InvalidOperationException("Не удалось создать AudioGraph: " + graphResult.Status);
+
+            _graph = graphResult.Graph;
+
+            var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
+            if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
+                throw new InvalidOperationException("Не удалось открыть файл: " + fileInputResult.Status);
+
+            _fileInput = fileInputResult.FileInputNode;
+
+            var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
+            if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
+                throw new InvalidOperationException("Не удалось создать вывод на устройство: " + deviceOutputResult.Status);
+
+            _deviceOutput = deviceOutputResult.DeviceOutputNode;
+
+            // Реальный звук в динамики. VisualizerService добавит ВТОРОЕ
+            // исходящее соединение от этого же _fileInput в свой FrameOutputNode —
+            // AudioFileInputNode поддерживает несколько исходящих соединений сразу.
+            _fileInput.AddOutgoingConnection(_deviceOutput);
+
+            _fileInput.FileCompleted += (s, a) =>
+            {
+                IsPlaying = false;
+                PlaybackStateChanged?.Invoke(this, false);
+            };
 
             var updater = Smtc.DisplayUpdater;
             updater.Type = MediaPlaybackType.Music;
@@ -61,15 +118,26 @@ namespace AudioVisualizerPlayer.Services
             updater.Update();
         }
 
-        public void Play() => Player.Play();
-        public void Pause() => Player.Pause();
+        public void Play()
+        {
+            _graph?.Start();
+            IsPlaying = true;
+            Smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
+            PlaybackStateChanged?.Invoke(this, true);
+        }
+
+        public void Pause()
+        {
+            _graph?.Stop();
+            IsPlaying = false;
+            Smtc.PlaybackStatus = MediaPlaybackStatus.Paused;
+            PlaybackStateChanged?.Invoke(this, false);
+        }
 
         public void TogglePlayPause()
         {
-            if (Player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
-                Pause();
-            else
-                Play();
+            if (IsPlaying) Pause();
+            else Play();
         }
 
         // Сюда подключить реальный плейлист — сейчас просто пробрасываем наружу
@@ -84,8 +152,9 @@ namespace AudioVisualizerPlayer.Services
 
         private void OnSmtcButtonPressed(SystemMediaTransportControls sender, SystemMediaTransportControlsButtonPressedEventArgs args)
         {
-            // Обработчик вызывается в фоновом потоке — UI трогать напрямую нельзя,
-            // но Play/Pause/Next/Prev тут работают с MediaPlayer, которому это ок.
+            // Обработчик вызывается в фоновом потоке. Play()/Pause() здесь —
+            // это вызовы AudioGraph.Start()/Stop(), они thread-safe и не требуют
+            // UI-потока (в отличие от, например, обновления Rectangle.Height).
             switch (args.Button)
             {
                 case SystemMediaTransportControlsButton.Play:
@@ -101,6 +170,16 @@ namespace AudioVisualizerPlayer.Services
                     PreviousRequested?.Invoke(this, EventArgs.Empty);
                     break;
             }
+        }
+
+        private void DisposeGraph()
+        {
+            _graph?.Stop();
+            _fileInput?.Dispose();
+            _graph?.Dispose();
+            _graph = null;
+            _fileInput = null;
+            _deviceOutput = null;
         }
     }
 }

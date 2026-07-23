@@ -1,9 +1,9 @@
 using System;
-using Windows.Media.Playback;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.UI;
 using Windows.UI.Core;
+using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Shapes;
@@ -20,10 +20,12 @@ namespace AudioVisualizerPlayer
         private const int BarCount = 40;
         private Rectangle[] _barRectangles;
 
-        // Последние уровни баров — обновляются в фоновом потоке (QuantumStarted),
-        // читаются при обновлении Height каждого Rectangle. float[] присваивается
-        // атомарно, поэтому отдельная блокировка не нужна.
-        private float[] _barLevels = new float[BarCount];
+        private bool _trackLoaded = false;
+        private DispatcherTimer _positionTimer;
+
+        // true, когда мы САМИ меняем ProgressSlider.Value из таймера позиции —
+        // чтобы ProgressSlider_ValueChanged не принял это за перемотку от пользователя.
+        private bool _isProgrammaticSliderUpdate = false;
 
         public MainPage()
         {
@@ -94,15 +96,14 @@ namespace AudioVisualizerPlayer
                 _playback.NextRequested += (s, a) => { /* переключение трека в плейлисте */ };
                 _playback.PreviousRequested += (s, a) => { /* переключение трека в плейлисте */ };
 
-                // ВАЖНО: подписываемся здесь, ДО того как LoadAsync/Play вообще
-                // вызовутся. LoadAsync() устанавливает Player.Source, что запускает
-                // открытие медиа асинхронно сразу же — MediaOpened вполне может
-                // успеть сработать раньше, чем мы подпишемся, если сделать это
-                // после LoadDemoTrackAsync()/Play() (так было раньше — из-за этого
-                // ProgressSlider.Maximum никогда не обновлялся с дефолтных 100,
-                // а перемотка считалась от неправильного диапазона).
-                _playback.Player.PlaybackSession.PositionChanged += OnPositionChanged;
-                _playback.Player.MediaOpened += OnMediaOpened;
+                // Позиция и длительность теперь без MediaPlayer — раз в 500мс
+                // опрашиваем AudioFileInputNode.Position через PlaybackService.
+                // Раньше это были push-события MediaPlaybackSession.PositionChanged/
+                // MediaOpened, но их источника (MediaPlayer) больше нет: единый
+                // AudioGraph отдаёт позицию через простое свойство, без событий.
+                _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                _positionTimer.Tick += PositionTimer_Tick;
+                _positionTimer.Start();
             }
             catch (Exception ex)
             {
@@ -111,6 +112,20 @@ namespace AudioVisualizerPlayer
                 _ = dialog.ShowAsync();
             }
         }
+
+        private void PositionTimer_Tick(object sender, object e)
+        {
+            if (_playback == null || !_trackLoaded) return;
+
+            _isProgrammaticSliderUpdate = true;
+            var position = _playback.Position;
+            ProgressSlider.Value = position.TotalSeconds;
+            ElapsedText.Text = FormatTime(position);
+            _isProgrammaticSliderUpdate = false;
+        }
+
+        private static string FormatTime(TimeSpan t) =>
+            $"{(int)t.TotalMinutes}:{t.Seconds:D2}";
 
         private async System.Threading.Tasks.Task LoadDemoTrackAsync()
         {
@@ -147,6 +162,13 @@ namespace AudioVisualizerPlayer
             try
             {
                 await _playback.LoadAsync(file, title: file.DisplayName, artist: "Unknown Artist");
+
+                // Duration доступна сразу после LoadAsync — AudioFileInputNode
+                // читает метаданные файла синхронно при создании узла, никакого
+                // отдельного асинхронного события (в отличие от MediaOpened)
+                // дожидаться не нужно.
+                ProgressSlider.Maximum = _playback.Duration.TotalSeconds;
+                DurationText.Text = FormatTime(_playback.Duration);
             }
             catch (Exception ex)
             {
@@ -157,60 +179,25 @@ namespace AudioVisualizerPlayer
             {
                 _visualizer?.Dispose();
                 _visualizer = new VisualizerService();
-                await _visualizer.InitializeAsync(file);
+                _visualizer.AttachTo(_playback);
                 _visualizer.LevelsChanged += OnLevelsChanged;
-                WriteUiDiagnostics("Подписка на LevelsChanged выполнена (ШАГ 4).");
-                // Start() здесь больше не вызываем — теперь единственный источник
-                // запуска/остановки анализа это OnPlaybackStateChanged, который
-                // сработает сразу следом за _playback.Play() в вызывающем коде.
-                // Так Start() гарантированно вызывается ровно один раз и всегда
-                // синхронно с реальным состоянием MediaPlayer.
+                // Отдельного Start()/Stop() у визуализатора больше нет — он
+                // просто подключён вторым выходом к общему AudioGraph, и
+                // получает кадры ровно тогда, когда играет реальный звук
+                // (единственный источник Start/Stop — _playback.Play()/Pause()).
             }
             catch (Exception ex)
             {
-                throw new Exception("ШАГ 4 (VisualizerService.InitializeAsync): " + ex.Message, ex);
+                throw new Exception("ШАГ 4 (VisualizerService.AttachTo): " + ex.Message, ex);
             }
         }
-
-        private static void WriteUiDiagnostics(string text)
-        {
-            try
-            {
-                var folder = Windows.Storage.ApplicationData.Current.LocalFolder;
-                var path = System.IO.Path.Combine(folder.Path, "ui_diagnostics.log");
-                System.IO.File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss.fff") + "  " + text + "\n");
-            }
-            catch
-            {
-            }
-        }
-
-        private static int _levelsChangedCallCount = 0;
 
         private async void OnLevelsChanged(object sender, float[] bars)
         {
-            _barLevels = bars;
-
-            int callNum = System.Threading.Interlocked.Increment(ref _levelsChangedCallCount);
-            if (callNum <= 3)
-            {
-                int previewCount = Math.Min(5, bars.Length);
-                var preview = new float[previewCount];
-                Array.Copy(bars, preview, previewCount);
-                WriteUiDiagnostics($"OnLevelsChanged вызван #{callNum}. bars.Length={bars.Length}, " +
-                    $"bars[0..4]=[{string.Join(", ", preview)}], " +
-                    $"_barRectangles == null: {_barRectangles == null}");
-            }
-
             // LevelsChanged прилетает из фонового потока AudioGraph — трогать
             // элементы UI (Rectangle.Height) можно только из UI-потока.
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
-                if (callNum <= 3)
-                {
-                    WriteUiDiagnostics($"Dispatcher-лямбда #{callNum} реально выполняется на UI-потоке.");
-                }
-
                 // Реальная высота панели вместо захардкоженного числа — так
                 // визуализатор всегда использует всё доступное место, а не
                 // фиксированную полоску независимо от размера экрана/раскладки.
@@ -222,60 +209,19 @@ namespace AudioVisualizerPlayer
                     double h = Math.Max(4.0, bars[i] * panelHeight);
                     _barRectangles[i].Height = h;
                 }
-
-                if (callNum <= 3)
-                {
-                    WriteUiDiagnostics($"Цикл обновления Height завершён #{callNum}. " +
-                        $"_barRectangles[0].Height теперь = {_barRectangles[0].Height}, " +
-                        $"ActualHeight VisualizerPanel = {VisualizerPanel.ActualHeight}, " +
-                        $"Visibility VisualizerPanel = {VisualizerPanel.Visibility}");
-                }
             });
         }
-
-        private bool _trackLoaded = false;
-
-        private void OnMediaOpened(Windows.Media.Playback.MediaPlayer sender, object args)
-        {
-            var duration = sender.PlaybackSession.NaturalDuration;
-            var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
-            {
-                ProgressSlider.Maximum = duration.TotalSeconds;
-                DurationText.Text = FormatTime(duration);
-            });
-        }
-
-        // true, когда мы САМИ меняем ProgressSlider.Value из OnPositionChanged —
-        // чтобы ProgressSlider_ValueChanged не принял это за перемотку от пользователя.
-        private bool _isProgrammaticSliderUpdate = false;
-
-        private void OnPositionChanged(Windows.Media.Playback.MediaPlaybackSession sender, object args)
-        {
-            var position = sender.Position;
-            var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
-            {
-                _isProgrammaticSliderUpdate = true;
-                ProgressSlider.Value = position.TotalSeconds;
-                _isProgrammaticSliderUpdate = false;
-                ElapsedText.Text = FormatTime(position);
-            });
-        }
-
-        private static string FormatTime(TimeSpan t) =>
-            $"{(int)t.TotalMinutes}:{t.Seconds:D2}";
 
         // ValueChanged — единственное событие Slider, которое гарантированно
         // срабатывает при ЛЮБОМ изменении значения (перетаскивание пальцем,
         // тап по треку, стрелки клавиатуры), в отличие от PointerPressed/Released,
-        // которые висят на внешнем элементе, а не на внутреннем Thumb, и могут
-        // не сработать надёжно при touch-перетаскивании — это и было вероятной
-        // причиной нерабочей перемотки.
+        // которые висят на внешнем элементе, а не на внутреннем Thumb.
         private void ProgressSlider_ValueChanged(object sender, Windows.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
         {
-            if (_isProgrammaticSliderUpdate) return; // это мы сами обновили из OnPositionChanged, не пользователь
-            if (_playback?.Player?.PlaybackSession == null) return;
+            if (_isProgrammaticSliderUpdate) return; // это мы сами обновили из таймера, не пользователь
+            if (_playback == null) return;
 
-            _playback.Player.PlaybackSession.Position = TimeSpan.FromSeconds(e.NewValue);
+            _playback.Position = TimeSpan.FromSeconds(e.NewValue);
         }
 
         private async void PlayPauseButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
@@ -316,35 +262,26 @@ namespace AudioVisualizerPlayer
             _playback.RaiseNextRequested();
         }
 
-        private void OnPlaybackStateChanged(object sender, MediaPlaybackState state)
+        private void OnPlaybackStateChanged(object sender, bool isPlaying)
         {
-            // Синхронизируем анализирующий AudioGraph с реальным состоянием
-            // MediaPlayer — иначе граф крутит файл сам по себе независимо от
-            // паузы, отсюда и "визуализатор прыгает даже когда аудио на паузе".
-            // Не через Dispatcher — Start()/Stop() у AudioGraph не трогают UI.
-            if (state == MediaPlaybackState.Playing)
-            {
-                _visualizer?.Start(_playback.Player.PlaybackSession.Position);
-            }
-            else
-            {
-                _visualizer?.Stop();
-            }
-
-            // PlayPauseIcon — уже элемент UI, здесь Dispatcher обязателен.
+            // Визуализатор больше не нужно отдельно останавливать/запускать —
+            // он подключён к общему AudioGraph, который уже сам стартует/стопится
+            // внутри _playback.Play()/Pause(). QuantumStarted естественным
+            // образом перестаёт приходить, когда граф на паузе, и это разом
+            // касается и звука, и анализа — без риска рассинхронизации.
             var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
-                PlayPauseIcon.Symbol = state == MediaPlaybackState.Playing
-                    ? Symbol.Pause
-                    : Symbol.Play;
+                PlayPauseIcon.Symbol = isPlaying ? Symbol.Pause : Symbol.Play;
             });
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
             base.OnNavigatedFrom(e);
-            // Освобождаем AudioGraph при уходе со страницы — визуализация не нужна
-            // в фоне, а звук продолжит играть через _playback, который живёт в App.
+            _positionTimer?.Stop();
+            // Освобождаем анализирующее соединение при уходе со страницы —
+            // визуализация не нужна в фоне, а звук продолжит играть через
+            // _playback, который живёт в App.
             _visualizer?.Dispose();
         }
     }
