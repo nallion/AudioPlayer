@@ -76,7 +76,6 @@ System.Net.WebSockets.Client.dll
 System.Net.WebSockets.dll
 System.Numerics.dll
 System.Numerics.Vectors.dll
-System.Numerics.Vectors.WindowsRuntime.dll
 System.ObjectModel.dll
 System.Reflection.Context.dll
 System.Reflection.DispatchProxy.dll
@@ -94,15 +93,12 @@ System.Runtime.Extensions.dll
 System.Runtime.Handles.dll
 System.Runtime.InteropServices.dll
 System.Runtime.InteropServices.RuntimeInformation.dll
-System.Runtime.InteropServices.WindowsRuntime.dll
 System.Runtime.Numerics.dll
 System.Runtime.Serialization.dll
 System.Runtime.Serialization.Formatters.dll
 System.Runtime.Serialization.Json.dll
 System.Runtime.Serialization.Primitives.dll
 System.Runtime.Serialization.Xml.dll
-System.Runtime.WindowsRuntime.dll
-System.Runtime.WindowsRuntime.UI.Xaml.dll
 System.Security.AccessControl.dll
 System.Security.Claims.dll
 System.Security.Cryptography.Algorithms.dll
