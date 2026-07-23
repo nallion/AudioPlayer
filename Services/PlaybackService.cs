@@ -84,56 +84,35 @@ namespace AudioVisualizerPlayer.Services
         /// <summary>
         /// Загружает трек: создаёт AudioGraph, файловый узел и узел вывода
         /// на динамики, соединяет их, и обновляет метаданные для лок-скрина.
+        /// forceSampleRate == null — обычный путь, авто-согласование формата
+        /// (сохраняет следование за устройством по умолчанию — наушники,
+        /// подключённые ВО ВРЕМЯ воспроизведения, подхватываются на лету).
+        /// Значение — явный PCM нужной частоты, жертвует автослежением, но
+        /// иногда единственный способ дать VisualizerService подключиться
+        /// вторым соединением к Submix при определённых устройствах
+        /// вывода (см. MainPage.LoadTrackAsync — именно оттуда вызывается
+        /// пересборка с forceSampleRate, только если обычная попытка не
+        /// позволила визуализатору подключиться).
         /// </summary>
-        public async Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null)
+        public async Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null, int? forceSampleRate = null)
         {
-            AudioVisualizerPlayer.Helpers.Diag.Log($"LoadAsync начат для файла: {file.Name}");
+            AudioVisualizerPlayer.Helpers.Diag.Log($"LoadAsync начат для файла: {file.Name}, forceSampleRate={(forceSampleRate?.ToString() ?? "авто")}");
 
             // Освобождаем предыдущий граф, если уже что-то играло
             DisposeGraph();
             AudioVisualizerPlayer.Helpers.Diag.Log("Старый граф освобождён (если был)");
 
-            // Сначала пробуем ЯВНО 48000Гц — судя по щелчкам/потрескиваниям
-            // в звуке, реальный DAC на этом устройстве, похоже, нативно
-            // работает на 48000, а не на 44100; принудительное пересэмплирование
-            // на лету при несовпадении частоты — частая причина таких щелчков.
-            // Если 48000 не подойдёт — пробуем авто-согласование, и в
-            // последнюю очередь явные 44100Гц как ещё один запасной вариант.
-            // Первое из первого автослежение за устройством (наушники,
-            // подключённые ВО ВРЕМЯ воспроизведения) сохраняется только для
-            // авто-варианта — если он не первый в списке, то и это поведение
-            // будет действовать только когда 48000 почему-то не подойдёт.
-            int?[] sampleRatesToTry = { 48000, null, 44100 };
-            Exception lastError = null;
-            for (int attempt = 1; attempt <= sampleRatesToTry.Length; attempt++)
+            try
             {
-                int? sampleRate = sampleRatesToTry[attempt - 1];
-                AudioVisualizerPlayer.Helpers.Diag.Log($"Попытка {attempt}, sampleRate={(sampleRate.HasValue ? sampleRate.Value.ToString() : "авто")} — начало");
-                try
-                {
-                    await BuildGraphAsync(file, sampleRate);
-                    lastError = null;
-                    AudioVisualizerPlayer.Helpers.Diag.Log($"Попытка {attempt} — УСПЕХ");
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    lastError = ex;
-                    AudioVisualizerPlayer.Helpers.Diag.Log($"Попытка {attempt} — ОШИБКА: {ex}");
-                    DisposeGraph(); // чистим частично созданное состояние перед повтором
-                    if (attempt == 1)
-                    {
-                        await Task.Delay(300);
-                    }
-                }
+                await BuildGraphAsync(file, forceSampleRate);
+                AudioVisualizerPlayer.Helpers.Diag.Log("BuildGraphAsync — УСПЕХ");
             }
-
-            if (lastError != null)
+            catch (Exception ex)
             {
-                AudioVisualizerPlayer.Helpers.Diag.Log("Все попытки провалились, бросаем исключение наверх");
+                AudioVisualizerPlayer.Helpers.Diag.Log("BuildGraphAsync — ОШИБКА: " + ex);
+                DisposeGraph();
                 throw new InvalidOperationException(
-                    $"Не удалось создать аудио-граф ни одним из способов (граф-попытки за сессию: {_graphCreationCount}): "
-                    + lastError.Message, lastError);
+                    $"Не удалось создать аудио-граф (граф-попытки за сессию: {_graphCreationCount}): " + ex.Message, ex);
             }
 
             _fileInput.FileCompleted += (s, a) =>
