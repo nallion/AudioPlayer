@@ -76,31 +76,23 @@ namespace AudioVisualizerPlayer.Services
         /// </summary>
         public async Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null)
         {
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: начало, перед DisposeGraph()");
             // Освобождаем предыдущий граф, если уже что-то играло
             DisposeGraph();
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: после DisposeGraph()");
 
             var settings = new AudioGraphSettings(AudioRenderCategory.Media);
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: перед AudioGraph.CreateAsync");
             var graphResult = await AudioGraph.CreateAsync(settings);
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: после AudioGraph.CreateAsync, status=" + graphResult.Status);
             if (graphResult.Status != AudioGraphCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось создать AudioGraph: " + graphResult.Status);
 
             _graph = graphResult.Graph;
 
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: перед CreateFileInputNodeAsync");
             var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: после CreateFileInputNodeAsync, status=" + fileInputResult.Status);
             if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось открыть файл: " + fileInputResult.Status);
 
             _fileInput = fileInputResult.FileInputNode;
 
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: перед CreateDeviceOutputNodeAsync");
             var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: после CreateDeviceOutputNodeAsync, status=" + deviceOutputResult.Status);
             if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось создать вывод на устройство: " + deviceOutputResult.Status);
 
@@ -117,7 +109,6 @@ namespace AudioVisualizerPlayer.Services
                 PlaybackStateChanged?.Invoke(this, false);
                 TrackEnded?.Invoke(this, EventArgs.Empty);
             };
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: узлы соединены, перед обновлением SMTC");
 
             var updater = Smtc.DisplayUpdater;
             updater.Type = MediaPlaybackType.Music;
@@ -130,14 +121,11 @@ namespace AudioVisualizerPlayer.Services
             }
 
             updater.Update();
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.LoadAsync: конец, updater.Update() выполнен");
         }
 
         public void Play()
         {
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.Play: перед _graph.Start()");
             _graph?.Start();
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.Play: после _graph.Start()");
             IsPlaying = true;
             Smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
             PlaybackStateChanged?.Invoke(this, true);
@@ -191,13 +179,9 @@ namespace AudioVisualizerPlayer.Services
 
         private void DisposeGraph()
         {
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.DisposeGraph: начало, _graph == null: " + (_graph == null));
             _graph?.Stop();
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.DisposeGraph: после _graph.Stop()");
             _fileInput?.Dispose();
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.DisposeGraph: после _fileInput.Dispose()");
             _graph?.Dispose();
-            AudioVisualizerPlayer.Helpers.Diag.Log("PlaybackService.DisposeGraph: после _graph.Dispose() — готово");
             _graph = null;
             _fileInput = null;
             _deviceOutput = null;
