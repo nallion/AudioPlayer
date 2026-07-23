@@ -140,6 +140,47 @@ namespace AudioVisualizerPlayer
         }
 
         private bool _trackLoaded = false;
+        private bool _progressWired = false;
+        private bool _isUserDraggingSlider = false;
+
+        private void OnMediaOpened(Windows.Media.Playback.MediaPlayer sender, object args)
+        {
+            var duration = sender.PlaybackSession.NaturalDuration;
+            var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                ProgressSlider.Maximum = duration.TotalSeconds;
+                DurationText.Text = FormatTime(duration);
+            });
+        }
+
+        private void OnPositionChanged(Windows.Media.Playback.MediaPlaybackSession sender, object args)
+        {
+            if (_isUserDraggingSlider) return; // не дёргаем слайдер, пока пользователь его тащит
+
+            var position = sender.Position;
+            var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                ProgressSlider.Value = position.TotalSeconds;
+                ElapsedText.Text = FormatTime(position);
+            });
+        }
+
+        private static string FormatTime(TimeSpan t) =>
+            $"{(int)t.TotalMinutes}:{t.Seconds:D2}";
+
+        private void ProgressSlider_PointerPressed(object sender, Windows.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            _isUserDraggingSlider = true;
+        }
+
+        private void ProgressSlider_PointerReleased(object sender, Windows.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            _isUserDraggingSlider = false;
+            if (_playback != null)
+            {
+                _playback.Player.PlaybackSession.Position = TimeSpan.FromSeconds(ProgressSlider.Value);
+            }
+        }
 
         private async void PlayPauseButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
@@ -156,6 +197,15 @@ namespace AudioVisualizerPlayer
                 {
                     await LoadDemoTrackAsync();
                     _trackLoaded = true;
+                    _playback.Play(); // автоплей сразу после выбора файла
+
+                    // Прогресс-бар: подписываемся один раз при первой загрузке трека.
+                    if (!_progressWired)
+                    {
+                        _progressWired = true;
+                        _playback.Player.PlaybackSession.PositionChanged += OnPositionChanged;
+                        _playback.Player.MediaOpened += OnMediaOpened;
+                    }
                 }
                 catch (Exception ex)
                 {

@@ -46,6 +46,7 @@
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="22,0,22,6">
             <TextBlock x:Name="ElapsedText" Text="0:00" Foreground="{StaticResource AppDimBrush}" FontSize="11" VerticalAlignment="Center"/>
             <Slider x:Name="ProgressSlider" Width="230" Margin="10,0" Minimum="0" Maximum="100"
+                    PointerPressed="ProgressSlider_PointerPressed" PointerReleased="ProgressSlider_PointerReleased"
                     Foreground="{StaticResource AppAccentBrush}"/>
             <TextBlock x:Name="DurationText" Text="0:00" Foreground="{StaticResource AppDimBrush}" FontSize="11" VerticalAlignment="Center"/>
         </StackPanel>
