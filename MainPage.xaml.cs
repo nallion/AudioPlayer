@@ -31,6 +31,12 @@ namespace AudioVisualizerPlayer
 
         private bool _trackLoaded = false;
         private bool _mainPageLoadedOnce = false;
+
+        // ВРЕМЕННЫЙ диагностический флаг — проверяем, трещит ли звук вообще
+        // без визуализатора (ни FFT, ни фоновых Task.Run, только голое
+        // воспроизведение через Submix -> DeviceOutput). После теста либо
+        // вернуть в false, либо убрать совсем.
+        private const bool DisableVisualizerForDiagnostics = true;
         private DispatcherTimer _positionTimer;
 
         // true, когда мы САМИ меняем ProgressSlider.Value из таймера позиции —
@@ -200,7 +206,7 @@ namespace AudioVisualizerPlayer
             // Просто возврат на страницу (без выбора трека) — если трек уже
             // играет, визуализатор был освобождён в OnNavigatedFrom и его
             // нужно подключить заново к тому же (всё ещё играющему) графу.
-            if (_trackLoaded && _visualizer == null)
+            if (!DisableVisualizerForDiagnostics && _trackLoaded && _visualizer == null)
             {
                 try
                 {
@@ -665,9 +671,12 @@ namespace AudioVisualizerPlayer
 
             try
             {
-                _visualizer = new VisualizerService();
-                await _visualizer.AttachToAsync(_playback);
-                _visualizer.LevelsChanged += OnLevelsChanged;
+                if (!DisableVisualizerForDiagnostics)
+                {
+                    _visualizer = new VisualizerService();
+                    await _visualizer.AttachToAsync(_playback);
+                    _visualizer.LevelsChanged += OnLevelsChanged;
+                }
                 // Отдельного Start()/Stop() у визуализатора нет — он просто
                 // подключён вторым выходом к общему AudioGraph и получает кадры
                 // ровно тогда, когда играет реальный звук (единственный
