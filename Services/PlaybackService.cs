@@ -85,6 +85,11 @@ namespace AudioVisualizerPlayer.Services
             if (_equalizerBands != null && bandIndex >= 0 && bandIndex < _equalizerBands.Length)
             {
                 _equalizerBands[bandIndex].Gain = (float)gainDb;
+                AudioVisualizerPlayer.Helpers.Diag.Log($"SetEqualizerGain: полоса {bandIndex} -> {gainDb} дБ, реально применено (band.Gain теперь = {_equalizerBands[bandIndex].Gain})");
+            }
+            else
+            {
+                AudioVisualizerPlayer.Helpers.Diag.Log($"SetEqualizerGain: полоса {bandIndex} -> {gainDb} дБ, НЕ применено — _equalizerBands == null: {_equalizerBands == null} (трек ещё не загружен?)");
             }
         }
 
@@ -264,7 +269,11 @@ namespace AudioVisualizerPlayer.Services
                     _equalizerBands[i] = band;
                 }
                 _submix.EffectDefinitions.Add(_equalizer);
-                AudioVisualizerPlayer.Helpers.Diag.Log("  Эквалайзер создан и подключён к Submix");
+
+                // Явно включаем — не полагаемся на предположение, что Add()
+                // сам по себе активирует эффект по умолчанию.
+                _submix.EnableEffectsByDefinition(_equalizer);
+                AudioVisualizerPlayer.Helpers.Diag.Log("  Эквалайзер создан, подключён к Submix и явно включён");
             }
             catch (Exception ex)
             {
