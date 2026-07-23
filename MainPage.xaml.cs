@@ -56,10 +56,17 @@ namespace AudioVisualizerPlayer
         {
             try
             {
-                _playback = App.Playback;
-                _playback.PlaybackStateChanged += OnPlaybackStateChanged;
-                _playback.NextRequested += (s, a) => { /* переключение трека в плейлисте */ };
-                _playback.PreviousRequested += (s, a) => { /* переключение трека в плейлисте */ };
+                try
+                {
+                    _playback = App.Playback;
+                    _playback.PlaybackStateChanged += OnPlaybackStateChanged;
+                    _playback.NextRequested += (s, a) => { /* переключение трека в плейлисте */ };
+                    _playback.PreviousRequested += (s, a) => { /* переключение трека в плейлисте */ };
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception("ШАГ 0 (подписка на события PlaybackService): " + ex.Message, ex);
+                }
 
                 // Для демонстрации — выбор файла через FilePicker.
                 // В реальном приложении здесь будет плейлист/библиотека.
@@ -74,29 +81,57 @@ namespace AudioVisualizerPlayer
 
         private async System.Threading.Tasks.Task LoadDemoTrackAsync()
         {
-            // SuggestedStartLocation=MusicLibrary убран: на этом устройстве
-            // доступ к библиотеке "Музыка" требует ещё и отдельного пользовательского
-            // разрешения (Settings → Privacy → Music Library), которое не выдаётся
-            // автоматически даже при наличии capability musicLibrary в манифесте —
-            // вместо диалога согласия FileOpenPicker сразу бросал
-            // UnauthorizedAccessException (0x80070005). Без SuggestedStartLocation
-            // пикер открывается в обычном режиме, который никаких специальных
-            // прав не требует вообще.
-            var picker = new FileOpenPicker();
-            picker.FileTypeFilter.Add(".mp3");
-            picker.FileTypeFilter.Add(".wav");
-            picker.FileTypeFilter.Add(".m4a");
+            // Диагностика: .NET Native даёт стек-трейс из голых адресов
+            // (SharedLibrary!<BaseAddress>+0x...) без номеров строк — по нему
+            // нельзя понять, какая именно строка бросает исключение. Помечаем
+            // каждый потенциально опасный шаг явно, чтобы это было видно
+            // прямо в тексте диалога.
+            FileOpenPicker picker;
+            try
+            {
+                picker = new FileOpenPicker();
+                picker.FileTypeFilter.Add(".mp3");
+                picker.FileTypeFilter.Add(".wav");
+                picker.FileTypeFilter.Add(".m4a");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("ШАГ 1 (создание FileOpenPicker): " + ex.Message, ex);
+            }
 
-            StorageFile file = await picker.PickSingleFileAsync();
+            StorageFile file;
+            try
+            {
+                file = await picker.PickSingleFileAsync();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("ШАГ 2 (PickSingleFileAsync): " + ex.Message, ex);
+            }
+
             if (file == null) return;
 
-            await _playback.LoadAsync(file, title: file.DisplayName, artist: "Unknown Artist");
+            try
+            {
+                await _playback.LoadAsync(file, title: file.DisplayName, artist: "Unknown Artist");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("ШАГ 3 (_playback.LoadAsync): " + ex.Message, ex);
+            }
 
-            _visualizer?.Dispose();
-            _visualizer = new VisualizerService();
-            await _visualizer.InitializeAsync(file);
-            _visualizer.LevelsChanged += OnLevelsChanged;
-            _visualizer.Start();
+            try
+            {
+                _visualizer?.Dispose();
+                _visualizer = new VisualizerService();
+                await _visualizer.InitializeAsync(file);
+                _visualizer.LevelsChanged += OnLevelsChanged;
+                _visualizer.Start();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("ШАГ 4 (VisualizerService.InitializeAsync): " + ex.Message, ex);
+            }
         }
 
         private async void OnLevelsChanged(object sender, float[] bars)
