@@ -54,8 +54,9 @@ namespace AudioVisualizerPlayer.Helpers
 
         /// <summary>
         /// Группирует спектр в barCount полос по логарифмической шкале
-        /// и возвращает нормализованные амплитуды 0..1 — их удобно
-        /// напрямую использовать как высоты баров.
+        /// и возвращает СЫРЫЕ средние амплитуды (без нормализации к 0..1) —
+        /// адаптивную нормализацию (AGC) делает VisualizerService, у которого
+        /// есть состояние между кадрами.
         /// </summary>
         public static float[] ToBars(Complex[] spectrum, int barCount)
         {
@@ -78,7 +79,7 @@ namespace AudioVisualizerPlayer.Helpers
                     sum += spectrum[i].Magnitude;
 
                 double avg = sum / (hi - lo);
-                bars[b] = (float)Math.Min(1.0, avg * 4.0); // эмпирический коэффициент усиления
+                bars[b] = (float)avg;
             }
 
             return bars;
