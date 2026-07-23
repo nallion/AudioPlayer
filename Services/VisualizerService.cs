@@ -139,6 +139,24 @@ namespace AudioVisualizerPlayer.Services
         // QuantumStarted, а не ждём все 1024 разом за один callback.
         private readonly System.Collections.Generic.List<float> _sampleBuffer = new System.Collections.Generic.List<float>(FftSize * 2);
 
+        // Переиспользуемый буфер под ExtractSamples — раньше там был
+        // "new float[]" НА КАЖДОМ кванте без исключения (даже когда мы
+        // пропускаем расчёт FFT через раз) — это постоянная, непрекращающаяся
+        // аллокация прямо на real-time аудио-потоке. Здесь буфер выделяется
+        // один раз и лишь изредка увеличивается (только если реальный размер
+        // кванта вдруг окажется больше, чем был раньше — на практике это
+        // происходит один раз, при самом первом кванте, дальше размер
+        // стабилен).
+        private float[] _extractScratch = new float[0];
+
+        // Переиспользуемый буфер под "срез" для FFT — раньше "new float[FftSize]"
+        // (16КБ) выделялся на real-time аудио-потоке при каждом расчёте.
+        // Копируем сюда, а не создаём заново — безопасно, потому что
+        // _isProcessingFft гарантирует: пока фоновая задача читает этот
+        // буфер, аудио-поток сюда больше не пишет (следующая попытка просто
+        // выходит раньше по этому флагу).
+        private readonly float[] _chunkBuffer = new float[FftSize];
+
         // AGC: скользящий максимум амплитуды с медленным затуханием — вместо
         // жёсткого фиксированного коэффициента усиления, который заставлял
         // большинство басовых/средних частот упираться в потолок одновременно.
@@ -168,14 +186,16 @@ namespace AudioVisualizerPlayer.Services
                 // (раньше, при двух независимых графах, это было безопасно —
                 // тяжёлые вычисления на графе-анализаторе не могли повлиять на
                 // звук; после объединения в один граф это уже не так). Здесь
-                // должны быть только ДЁШЕВЫЕ операции — копирование сэмплов.
-                // Сам FFT и вся математика уходят в Task.Run ниже, на поток
-                // из пула потоков, чтобы не задерживать рендеринг звука.
+                // должны быть только ДЁШЕВЫЕ операции — копирование сэмплов,
+                // БЕЗ единой аллокации. Сам FFT и вся математика уходят в
+                // Task.Run ниже, на поток из пула потоков, чтобы не
+                // задерживать рендеринг звука.
                 Windows.Media.AudioFrame frame = _frameOutput.GetFrame();
-                float[] samples = ExtractSamples(frame);
-                if (samples == null || samples.Length == 0) return;
+                int sampleCount = ExtractSamplesInto(frame, ref _extractScratch);
+                if (sampleCount == 0) return;
 
-                _sampleBuffer.AddRange(samples);
+                for (int i = 0; i < sampleCount; i++)
+                    _sampleBuffer.Add(_extractScratch[i]);
 
                 // Не даём буферу расти бесконечно, если по какой-то причине
                 // накопление опережает потребление.
@@ -190,18 +210,18 @@ namespace AudioVisualizerPlayer.Services
                 _skipThisQuantum = !_skipThisQuantum;
                 if (_skipThisQuantum) return; // пропускаем через раз
 
-                // Берём последние FftSize сэмплов из накопленного буфера —
-                // копия чтобы фоновый поток не читал буфер, который меняется
-                // на аудио-потоке в следующем кванте.
-                var chunk = new float[FftSize];
-                _sampleBuffer.CopyTo(_sampleBuffer.Count - FftSize, chunk, 0, FftSize);
+                // Берём последние FftSize сэмплов из накопленного буфера — в
+                // переиспользуемый _chunkBuffer, а не в новый массив. Безопасно:
+                // пока _isProcessingFft == true, сюда больше никто не пишет
+                // (см. комментарий у поля выше).
+                _sampleBuffer.CopyTo(_sampleBuffer.Count - FftSize, _chunkBuffer, 0, FftSize);
 
                 _isProcessingFft = true;
                 System.Threading.Tasks.Task.Run(() =>
                 {
                     try
                     {
-                        Complex[] spectrum = _fft.Transform(chunk);
+                        Complex[] spectrum = _fft.Transform(_chunkBuffer);
                         float[] bars = FFT.ToBars(spectrum, BarCount);
                         NormalizeWithAgc(bars);
                         LevelsChanged?.Invoke(this, bars);
@@ -239,7 +259,18 @@ namespace AudioVisualizerPlayer.Services
                 bars[i] = Math.Min(1.0f, bars[i] / _agcMax);
         }
 
-        private unsafe float[] ExtractSamples(Windows.Media.AudioFrame frame)
+        /// <summary>
+        /// Копирует сэмплы кадра в scratch — переиспользуемый буфер вместо
+        /// нового массива на каждый вызов. scratch увеличивается (пересоздаётся)
+        /// только если реальный размер кванта оказался больше, чем помещается
+        /// в текущий буфер — на практике это происходит один раз, на самом
+        /// первом кванте, дальше размер стабилен и переаллокаций больше нет.
+        /// Возвращает реальное количество сэмплов в этом кадре (может быть
+        /// МЕНЬШЕ длины scratch, если буфер больше не пересоздавался после
+        /// более крупного предыдущего кванта — вызывающий код должен читать
+        /// ровно столько элементов, сколько вернула эта функция, не scratch.Length).
+        /// </summary>
+        private unsafe int ExtractSamplesInto(Windows.Media.AudioFrame frame, ref float[] scratch)
         {
             using (var buffer = frame.LockBuffer(Windows.Media.AudioBufferAccessMode.Read))
             using (var reference = buffer.CreateReference())
@@ -248,11 +279,17 @@ namespace AudioVisualizerPlayer.Services
                 float* dataInFloat = (float*)dataInBytes;
                 uint capacityInFloats = capacityInBytes / sizeof(float);
 
-                var result = new float[capacityInFloats];
-                for (uint i = 0; i < capacityInFloats; i++)
-                    result[i] = dataInFloat[i];
+                if (scratch.Length < capacityInFloats)
+                {
+                    // Редкий путь — не на каждый квант, только когда реальный
+                    // размер кванта вырос за пределы текущего буфера.
+                    scratch = new float[capacityInFloats];
+                }
 
-                return result;
+                for (uint i = 0; i < capacityInFloats; i++)
+                    scratch[i] = dataInFloat[i];
+
+                return (int)capacityInFloats;
             }
         }
 
