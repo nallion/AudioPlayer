@@ -52,6 +52,15 @@ namespace AudioVisualizerPlayer.Services
         /// подписывается MainPage для автоперехода к следующему треку.</summary>
         public event EventHandler TrackEnded;
 
+        /// <summary>
+        /// Трек только что перемотался в начало и продолжил играть из-за
+        /// LoopCurrentTrack — визуализатор (свой независимый поток, не знает
+        /// о реальной позиции сам по себе) должен пересинхронизироваться
+        /// на этот момент, иначе он продолжит играть вперёд по старой
+        /// позиции, никогда не "отскакивая" вместе с реальным звуком.
+        /// </summary>
+        public event EventHandler TrackLooped;
+
         public event EventHandler NextRequested;
         public event EventHandler PreviousRequested;
 
@@ -147,6 +156,7 @@ namespace AudioVisualizerPlayer.Services
                 // автопереход к следующему треку не запускается.
                 _player.PlaybackSession.Position = TimeSpan.Zero;
                 _player.Play();
+                TrackLooped?.Invoke(this, EventArgs.Empty);
                 return;
             }
 

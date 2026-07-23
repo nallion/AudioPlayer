@@ -126,12 +126,32 @@ namespace AudioVisualizerPlayer
                 {
                     await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
                     {
+                        // Останавливаем явно и сразу — раньше при единственном
+                        // треке в плейлисте (без автоперехода) визуализатор
+                        // продолжал играть свой независимый поток бесконечно
+                        // дальше, хотя реальный звук уже давно молчит.
+                        _visualizer?.Stop();
+
                         // Только если реально есть плейлист из нескольких треков —
                         // одиночный файл просто останавливается по окончании.
                         if (App.CurrentPlaylist.Count > 1)
                         {
                             await PlayNextTrackAsync();
                         }
+                    });
+                };
+
+                _playback.TrackLooped += async (s, a) =>
+                {
+                    await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
+                    {
+                        // Реальный трек только что перемотался в начало
+                        // (LoopCurrentTrack) — визуализатор об этом сам не
+                        // узнаёт (свой независимый поток), пересинхронизируем
+                        // явно на позицию 0, иначе он продолжит играть вперёд
+                        // по старой позиции, никогда не "отскакивая" вместе
+                        // со звуком.
+                        await RefreshVisualizerAsync(resyncToCurrentPosition: true);
                     });
                 };
 
