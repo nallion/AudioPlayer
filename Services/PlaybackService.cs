@@ -22,12 +22,17 @@ namespace AudioVisualizerPlayer.Services
     /// одновременно (DeviceOutput + FrameOutput для анализа) бросает
     /// XAUDIO2_E_INVALID_CALL (0x88960001) на этом устройстве — похоже, узел
     /// чтения сжатого файла не поддерживает больше одного исходящего
-    /// соединения надёжно. Решение: между FileInput и двумя потребителями
-    /// стоит промежуточный AudioSubmixNode — именно submix-узлы штатно
-    /// поддерживают разветвление на несколько выходов. FileInput → Submix →
-    /// (DeviceOutput И FrameOutput для VisualizerService). Дрейфа по-прежнему
-    /// нет — это всё ещё один и тот же поток данных, просто с одной
-    /// промежуточной точкой разветвления.
+    /// соединения надёжно. Раньше решением был промежуточный AudioSubmixNode
+    /// (FileInput → Submix → DeviceOutput + FrameOutput), но потом
+    /// обнаружились редкие, не до конца объяснённые щелчки в звуке, не
+    /// связанные ни с визуализатором, ни с эквалайзером, ни с размером
+    /// буфера — подозрение упало на сам Submix. ТЕКУЩЕЕ СОСТОЯНИЕ
+    /// (диагностика): Submix временно убран из пути ПОЛНОСТЬЮ — FileInput
+    /// подключается к DeviceOutput НАПРЯМУЮ (одно соединение, без узла
+    /// разветвления), эквалайзер перенесён на FileInput (EffectDefinitions
+    /// есть не только у Submix). Пока в таком виде визуализатор работать не
+    /// может (второй выход убран) — он и так отключён диагностическим
+    /// флагом в MainPage на время этого теста.
     ///
     /// MediaPlayer убран — вместе с ним ушли его автоматические
     /// SystemMediaTransportControls и MediaPlaybackSession.PositionChanged.
@@ -264,22 +269,20 @@ namespace AudioVisualizerPlayer.Services
 
             _fileInput = fileInputResult.FileInputNode;
 
-            // Промежуточный submix-узел — на него заводим ЕДИНСТВЕННОЕ исходящее
-            // соединение от FileInput (сам FileInput его надёжно поддерживает),
-            // а дальше уже от submix идут ДВА соединения: в динамики и в
-            // VisualizerService. Напрямую от FileInput два соединения давали
-            // XAUDIO2_E_INVALID_CALL на этом устройстве.
-            _submix = _graph.CreateSubmixNode();
-            AudioVisualizerPlayer.Helpers.Diag.Log("  Submix создан, перед FileInput.AddOutgoingConnection(Submix)");
-            _fileInput.AddOutgoingConnection(_submix);
-            AudioVisualizerPlayer.Helpers.Diag.Log("  FileInput -> Submix подключено");
+            // ВРЕМЕННО (диагностика): Submix убран из пути полностью. Раньше
+            // FileInput -> Submix -> (DeviceOutput + FrameOutput) — Submix
+            // был нужен только ради разветвления на два выхода для
+            // визуализатора. Визуализатор сейчас отключён диагностическим
+            // флагом (MainPage.DisableVisualizerForDiagnostics), и щелчки всё
+            // равно продолжаются даже без него — подозрение упало на сам
+            // Submix. Проверяем: FileInput подключается К DeviceOutput
+            // НАПРЯМУЮ, без какого-либо промежуточного узла вообще.
+            // EffectDefinitions (эквалайзер) — не эксклюзивное свойство
+            // Submix, есть и у FileInput, переносим эквалайзер сюда.
+            _submix = null;
 
-            // Эквалайзер вешаем на Submix — единственную точку, через которую
-            // проходит ВЕСЬ звук (и в динамики, и в анализ визуализатора).
-            // Граф (и Submix) пересоздаётся заново при каждой загрузке трека,
-            // поэтому полосы создаём здесь же, каждый раз заново, подставляя
-            // текущие сохранённые значения громкости из App.EqualizerGainsDb —
-            // иначе эквалайзер сбрасывался бы на "плоский" при каждом Next/Prev.
+            // Эквалайзер вешаем прямо на FileInput — единственную точку,
+            // через которую пока проходит весь звук (Submix временно убран).
             try
             {
                 _equalizer = new EqualizerEffectDefinition(_graph);
@@ -332,12 +335,12 @@ namespace AudioVisualizerPlayer.Services
                     AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: FrequencyCenter={EqualizerFrequencies[i]}, Bandwidth={EqualizerBandwidths[i]}, Gain={gain} — все три применены успешно");
                     _equalizerBands[i] = band;
                 }
-                _submix.EffectDefinitions.Add(_equalizer);
+                _fileInput.EffectDefinitions.Add(_equalizer);
 
                 // Явно включаем — не полагаемся на предположение, что Add()
                 // сам по себе активирует эффект по умолчанию.
-                _submix.EnableEffectsByDefinition(_equalizer);
-                AudioVisualizerPlayer.Helpers.Diag.Log("  Эквалайзер создан, подключён к Submix и явно включён");
+                _fileInput.EnableEffectsByDefinition(_equalizer);
+                AudioVisualizerPlayer.Helpers.Diag.Log("  Эквалайзер создан, подключён к FileInput и явно включён");
             }
             catch (Exception ex)
             {
@@ -355,9 +358,9 @@ namespace AudioVisualizerPlayer.Services
                 throw new InvalidOperationException("Не удалось создать вывод на устройство: " + deviceOutputResult.Status);
 
             _deviceOutput = deviceOutputResult.DeviceOutputNode;
-            AudioVisualizerPlayer.Helpers.Diag.Log("  DeviceOutput создан, перед Submix.AddOutgoingConnection(DeviceOutput)");
-            _submix.AddOutgoingConnection(_deviceOutput); // сама точка, где раньше падало на холодном старте
-            AudioVisualizerPlayer.Helpers.Diag.Log("  Submix -> DeviceOutput подключено — BuildGraphAsync завершён");
+            AudioVisualizerPlayer.Helpers.Diag.Log("  DeviceOutput создан, перед FileInput.AddOutgoingConnection(DeviceOutput) — напрямую, без Submix");
+            _fileInput.AddOutgoingConnection(_deviceOutput);
+            AudioVisualizerPlayer.Helpers.Diag.Log("  FileInput -> DeviceOutput подключено напрямую — BuildGraphAsync завершён");
         }
 
         public void Play()
