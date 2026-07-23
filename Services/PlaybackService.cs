@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Windows.Devices.Enumeration;
 using Windows.Media;
 using Windows.Media.Audio;
 using Windows.Media.Render;
@@ -57,6 +58,17 @@ namespace AudioVisualizerPlayer.Services
         public AudioGraph Graph => _graph;
         public AudioSubmixNode Submix => _submix;
 
+        /// <summary>
+        /// Ручной выбор устройства вывода пользователем (см. MainPage,
+        /// OutputDeviceComboBox) — null означает "авто" (системное значение
+        /// по умолчанию, с динамическим автослежением). Конкретное устройство
+        /// жёстко закрепляет граф за ним (PrimaryRenderDevice), теряя
+        /// автослежение — но это осознанный выбор пользователя, а не
+        /// случайный побочный эффект, поэтому здесь уместно в отличие от
+        /// автоматической установки этого свойства.
+        /// </summary>
+        public DeviceInformation SelectedRenderDevice { get; set; }
+
         public TimeSpan Position
         {
             get => _fileInput?.Position ?? TimeSpan.Zero;
@@ -84,17 +96,17 @@ namespace AudioVisualizerPlayer.Services
         /// <summary>
         /// Загружает трек: создаёт AudioGraph, файловый узел и узел вывода
         /// на динамики, соединяет их, и обновляет метаданные для лок-скрина.
-        /// forceSampleRate == null — обычный путь, авто-согласование формата
-        /// (сохраняет следование за устройством по умолчанию — наушники,
-        /// подключённые ВО ВРЕМЯ воспроизведения, подхватываются на лету).
-        /// Значение — явный PCM нужной частоты, жертвует автослежением, но
-        /// иногда единственный способ дать VisualizerService подключиться
-        /// вторым соединением к Submix при определённых устройствах
-        /// вывода (см. MainPage.LoadTrackAsync — именно оттуда вызывается
-        /// пересборка с forceSampleRate, только если обычная попытка не
-        /// позволила визуализатору подключиться).
+        /// По умолчанию всегда используется явный PCM 48000Гц — на этом
+        /// устройстве нативная частота DAC, судя по всему, именно 48000
+        /// (щелчки в звуке при 44100), и явный формат также нужен, чтобы
+        /// VisualizerService мог стабильно подключиться вторым соединением
+        /// к Submix при определённых устройствах вывода (наушники). Раньше
+        /// сначала пробовали "авто" ради автослежения за устройством, но
+        /// раз пользователь теперь может выбрать устройство вывода вручную
+        /// (см. MainPage.OutputDeviceComboBox), автослежение уже не так
+        /// критично — стабильность важнее.
         /// </summary>
-        public async Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null, int? forceSampleRate = null)
+        public async Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null, int? forceSampleRate = 48000)
         {
             AudioVisualizerPlayer.Helpers.Diag.Log($"LoadAsync начат для файла: {file.Name}, forceSampleRate={(forceSampleRate?.ToString() ?? "авто")}");
 
@@ -150,16 +162,22 @@ namespace AudioVisualizerPlayer.Services
                 settings.EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm((uint)sampleRate.Value, 2, 16);
             }
 
-            // PrimaryRenderDevice намеренно НЕ задаём: это свойство жёстко
-            // привязывает граф к конкретному устройству НАВСЕГДА, отключая
-            // динамическое автослежение за текущим устройством по умолчанию —
-            // даже если присвоить именно то устройство, которое сейчас и так
-            // является дефолтным. Пробовали явно его задавать, решив, что это
-            // исправит выбор не того устройства при явном EncodingProperties —
-            // но это сломало автослежение вообще во всех случаях (наушники
-            // перестали распознаваться и при холодном старте, и на лету).
-            // Оставляем null — граф сам динамически следует за системным
-            // устройством по умолчанию, как было изначально.
+            // PrimaryRenderDevice намеренно НЕ задаём автоматически: это
+            // свойство жёстко привязывает граф к конкретному устройству
+            // НАВСЕГДА, отключая динамическое автослежение — даже если
+            // присвоить именно то устройство, которое сейчас и так является
+            // дефолтным. Пробовали задавать его автоматически на основе
+            // "текущего устройства по умолчанию" — это сломало автослежение
+            // вообще во всех случаях. НО если пользователь ЯВНО выбрал
+            // конкретное устройство вручную (SelectedRenderDevice, см.
+            // MainPage.OutputDeviceComboBox) — это осознанный выбор, и тут
+            // жёсткая привязка уместна: автоопределение наушников на этом
+            // устройстве ненадёжно, ручной выбор — явная подстраховка.
+            if (SelectedRenderDevice != null)
+            {
+                settings.PrimaryRenderDevice = SelectedRenderDevice;
+                AudioVisualizerPlayer.Helpers.Diag.Log($"  Используем вручную выбранное устройство: {SelectedRenderDevice.Name}");
+            }
 
             var graphResult = await AudioGraph.CreateAsync(settings);
             AudioVisualizerPlayer.Helpers.Diag.Log($"  AudioGraph.CreateAsync status={graphResult.Status}");

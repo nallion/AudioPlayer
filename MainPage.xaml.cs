@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Windows.Devices.Enumeration;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.UI;
@@ -139,6 +140,11 @@ namespace AudioVisualizerPlayer
                 _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
                 _positionTimer.Tick += PositionTimer_Tick;
                 _positionTimer.Start();
+
+                // Автоопределение наушников на этом устройстве ненадёжно —
+                // список устройств вывода заполняем один раз при старте,
+                // выбор пользователя применяется вручную (см. OutputDeviceComboBox_SelectionChanged).
+                _ = PopulateOutputDevicesAsync();
             }
             catch (Exception ex)
             {
@@ -286,6 +292,80 @@ namespace AudioVisualizerPlayer
         private void MenuButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
             RootSplitView.IsPaneOpen = !RootSplitView.IsPaneOpen;
+        }
+
+        // --- Ручной выбор устройства вывода звука ---
+
+        private class OutputDeviceOption
+        {
+            public string Name { get; set; }
+            public DeviceInformation Device { get; set; } // null = "Авто" (системное значение по умолчанию)
+        }
+
+        private bool _populatingOutputDevices = false;
+
+        private async Task PopulateOutputDevicesAsync()
+        {
+            _populatingOutputDevices = true; // не реагируем на программное заполнение как на выбор пользователя
+            try
+            {
+                var options = new List<OutputDeviceOption>
+                {
+                    new OutputDeviceOption { Name = "Авто (системное значение по умолчанию)", Device = null }
+                };
+
+                try
+                {
+                    var devices = await DeviceInformation.FindAllAsync(
+                        Windows.Media.Devices.MediaDevice.GetAudioRenderSelector());
+                    foreach (var d in devices)
+                    {
+                        options.Add(new OutputDeviceOption { Name = d.Name, Device = d });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Diag.Log("Не удалось перечислить устройства вывода: " + ex);
+                }
+
+                OutputDeviceComboBox.ItemsSource = options;
+                OutputDeviceComboBox.SelectedIndex = 0; // "Авто" по умолчанию
+            }
+            finally
+            {
+                _populatingOutputDevices = false;
+            }
+        }
+
+        private async void OutputDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_populatingOutputDevices) return; // это мы сами заполнили список, не пользователь выбрал
+            if (_playback == null) return;
+
+            var selected = OutputDeviceComboBox.SelectedItem as OutputDeviceOption;
+            if (selected == null) return;
+
+            _playback.SelectedRenderDevice = selected.Device;
+            Diag.Log($"Пользователь выбрал устройство вывода: {selected.Name}");
+
+            // Применяем выбор сразу — если что-то уже загружено, перегружаем
+            // текущий трек с новым устройством и продолжаем с той же позиции.
+            if (_trackLoaded && App.CurrentPlaylistIndex >= 0 && App.CurrentPlaylistIndex < App.CurrentPlaylist.Count)
+            {
+                var wasPlaying = _playback.IsPlaying;
+                var previousPosition = _playback.Position;
+
+                try
+                {
+                    await LoadTrackAsync(App.CurrentPlaylist[App.CurrentPlaylistIndex]);
+                    _playback.Position = previousPosition;
+                    if (wasPlaying) _playback.Play();
+                }
+                catch (Exception ex)
+                {
+                    await new Windows.UI.Popups.MessageDialog(ex.ToString(), "Не удалось применить устройство вывода").ShowAsync();
+                }
+            }
         }
 
         private async void PlaylistMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
@@ -527,38 +607,14 @@ namespace AudioVisualizerPlayer
             }
             catch (Exception ex)
             {
-                Diag.Log("VisualizerService.AttachTo (авто-формат) провалился, пробуем пересобрать граф с явными 48000Гц ради визуализатора: " + ex);
+                // Визуализация — не критичная часть воспроизведения: если она
+                // не подключилась, просто логируем и продолжаем — звук должен
+                // заиграть сам, без ручного повторного нажатия. Пересборка с
+                // явным форматом больше не нужна — LoadAsync теперь всегда
+                // использует явные 48000Гц с самого начала.
+                Diag.Log("VisualizerService.AttachTo провалился, звук продолжит играть без визуализации: " + ex);
                 _visualizer?.Dispose();
                 _visualizer = null;
-
-                // ВАЖНО: этот путь жертвует автослежением за сменой аудио-устройства
-                // на лету (наушники, подключённые ВО ВРЕМЯ игры, здесь уже не
-                // подхватятся) — но срабатывает он только тогда, когда обычный
-                // (авто) граф не позволил визуализатору подключиться вообще, то
-                // есть в основном при холодном старте с уже подключёнными
-                // наушниками. Для всех остальных случаев (обычный запуск без
-                // наушников, наушники подключаются во время игры) автослежение
-                // остаётся рабочим, потому что этот блок просто не выполняется.
-                try
-                {
-                    await _playback.LoadAsync(item.File, title: item.Title, artist: item.Artist, forceSampleRate: 48000);
-                    ProgressSlider.Maximum = _playback.Duration.TotalSeconds;
-                    DurationText.Text = FormatTime(_playback.Duration);
-
-                    _visualizer = new VisualizerService();
-                    await _visualizer.AttachToAsync(_playback);
-                    _visualizer.LevelsChanged += OnLevelsChanged;
-                    Diag.Log("Пересборка с 48000Гц помогла — визуализатор подключён.");
-                }
-                catch (Exception ex2)
-                {
-                    // Не получилось даже так — значит, звук продолжит играть
-                    // (на графе, который успела создать пересборка), но без
-                    // визуализации. Это не критично для воспроизведения.
-                    Diag.Log("Пересборка с 48000Гц тоже не помогла визуализатору: " + ex2);
-                    _visualizer?.Dispose();
-                    _visualizer = null;
-                }
             }
         }
 
