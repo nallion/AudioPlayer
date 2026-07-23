@@ -112,14 +112,50 @@ namespace AudioVisualizerPlayer.Services
             _submix = _graph.CreateSubmixNode();
             _fileInput.AddOutgoingConnection(_submix);
 
-            var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
-            if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
-                throw new InvalidOperationException($"Не удалось создать вывод на устройство (граф №{_graphCreationCount} за сессию): " + deviceOutputResult.Status);
+            // Выяснено опытным путём: если наушники уже подключены В МОМЕНТ
+            // холодного старта приложения, создание/подключение вывода на
+            // устройство иногда падает с XAUDIO2_E_INVALID_CALL — похоже на
+            // гонку инициализации: аудио-эндпоинт наушников ещё не до конца
+            // готов ровно в момент создания графа. Если наушники подключаются
+            // УЖЕ ВО ВРЕМЯ воспроизведения — переключение проходит нормально,
+            // это не проблема наушников как таковых. Лечим коротким повтором
+            // с задержкой — классический приём для гонок инициализации
+            // аудио-эндпоинтов.
+            AudioDeviceOutputNode deviceOutput = null;
+            Exception lastDeviceOutputError = null;
+            for (int attempt = 1; attempt <= 3 && deviceOutput == null; attempt++)
+            {
+                AudioDeviceOutputNode candidate = null;
+                try
+                {
+                    var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
+                    if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
+                        throw new InvalidOperationException("Статус: " + deviceOutputResult.Status);
 
-            _deviceOutput = deviceOutputResult.DeviceOutputNode;
+                    candidate = deviceOutputResult.DeviceOutputNode;
+                    _submix.AddOutgoingConnection(candidate); // сама точка, где раньше падало
 
-            // Реальный звук в динамики — от submix, а не от FileInput напрямую.
-            _submix.AddOutgoingConnection(_deviceOutput);
+                    deviceOutput = candidate;
+                }
+                catch (Exception ex)
+                {
+                    candidate?.Dispose(); // узел мог успеть создаться, даже если подключение упало
+                    lastDeviceOutputError = ex;
+                    if (attempt < 3)
+                    {
+                        await Task.Delay(300);
+                    }
+                }
+            }
+
+            if (deviceOutput == null)
+            {
+                throw new InvalidOperationException(
+                    $"Не удалось создать вывод на устройство после 3 попыток (граф №{_graphCreationCount} за сессию): "
+                    + lastDeviceOutputError?.Message, lastDeviceOutputError);
+            }
+
+            _deviceOutput = deviceOutput;
 
             _fileInput.FileCompleted += (s, a) =>
             {
