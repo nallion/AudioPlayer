@@ -70,6 +70,8 @@ namespace AudioVisualizerPlayer.Services
             Smtc.ButtonPressed += OnSmtcButtonPressed;
         }
 
+        private static int _graphCreationCount = 0;
+
         /// <summary>
         /// Загружает трек: создаёт AudioGraph, файловый узел и узел вывода
         /// на динамики, соединяет их, и обновляет метаданные для лок-скрина.
@@ -82,19 +84,20 @@ namespace AudioVisualizerPlayer.Services
             var settings = new AudioGraphSettings(AudioRenderCategory.Media);
             var graphResult = await AudioGraph.CreateAsync(settings);
             if (graphResult.Status != AudioGraphCreationStatus.Success)
-                throw new InvalidOperationException("Не удалось создать AudioGraph: " + graphResult.Status);
+                throw new InvalidOperationException($"Не удалось создать AudioGraph (это граф №{_graphCreationCount + 1} за сессию): " + graphResult.Status);
 
             _graph = graphResult.Graph;
+            _graphCreationCount++;
 
             var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
             if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
-                throw new InvalidOperationException("Не удалось открыть файл: " + fileInputResult.Status);
+                throw new InvalidOperationException($"Не удалось открыть файл (граф №{_graphCreationCount} за сессию): " + fileInputResult.Status);
 
             _fileInput = fileInputResult.FileInputNode;
 
             var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
             if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
-                throw new InvalidOperationException("Не удалось создать вывод на устройство: " + deviceOutputResult.Status);
+                throw new InvalidOperationException($"Не удалось создать вывод на устройство (граф №{_graphCreationCount} за сессию): " + deviceOutputResult.Status);
 
             _deviceOutput = deviceOutputResult.DeviceOutputNode;
 

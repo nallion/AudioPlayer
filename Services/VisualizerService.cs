@@ -34,6 +34,8 @@ namespace AudioVisualizerPlayer.Services
 
         public event EventHandler<float[]> LevelsChanged;
 
+        private static int _attachToSuccessCount = 0;
+
         /// <summary>
         /// Подключается к уже загруженному треку в PlaybackService — второе
         /// исходящее соединение от того же AudioFileInputNode, что играет звук.
@@ -46,10 +48,26 @@ namespace AudioVisualizerPlayer.Services
             if (_graph == null || playback.FileInput == null)
                 throw new InvalidOperationException("PlaybackService ещё не загрузил трек — AttachTo нужно вызывать после LoadAsync.");
 
-            _frameOutput = _graph.CreateFrameOutputNode();
-            playback.FileInput.AddOutgoingConnection(_frameOutput);
+            try
+            {
+                _frameOutput = _graph.CreateFrameOutputNode();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"AttachTo ШАГ A (CreateFrameOutputNode), успешных AttachTo до этого за сессию: {_attachToSuccessCount}: " + ex.Message, ex);
+            }
+
+            try
+            {
+                playback.FileInput.AddOutgoingConnection(_frameOutput);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"AttachTo ШАГ B (AddOutgoingConnection), успешных AttachTo до этого за сессию: {_attachToSuccessCount}: " + ex.Message, ex);
+            }
 
             _graph.QuantumStarted += OnQuantumStarted;
+            _attachToSuccessCount++;
         }
 
         private void Detach()
