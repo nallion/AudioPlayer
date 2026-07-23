@@ -2,135 +2,65 @@ using System;
 using System.Threading.Tasks;
 using Windows.Devices.Enumeration;
 using Windows.Media;
-using Windows.Media.Audio;
-using Windows.Media.Effects;
-using Windows.Media.Render;
+using Windows.Media.Core;
+using Windows.Media.Playback;
 using Windows.Storage;
 using Windows.Storage.Streams;
 
 namespace AudioVisualizerPlayer.Services
 {
     /// <summary>
-    /// Единый AudioGraph на воспроизведение звука. Раньше звук игрался через
-    /// Windows.Media.Playback.MediaPlayer, а анализ спектра — через отдельный,
-    /// независимый AudioGraph, читающий тот же файл заново. Это давало дрейф
-    /// по времени между звуком и визуализацией (два независимых чтения одного
-    /// файла со своим таймингом каждое). Теперь один AudioGraph и один
-    /// AudioFileInputNode.
+    /// Воспроизведение через Windows.Media.Playback.MediaPlayer — вернулись
+    /// сюда после долгого архитектурного эксперимента с единым AudioGraph
+    /// (звук + анализ спектра через один граф с промежуточным Submix). Тот
+    /// эксперимент решал красивую задачу (нулевой дрейф между звуком и
+    /// визуализацией), но давал регулярные, не до конца объяснимые щелчки
+    /// в звуке — причём даже в WAV, даже с полностью отключённым
+    /// визуализатором/таймером позиции/эквалайзером/увеличенным буфером.
     ///
-    /// ВАЖНО: AudioFileInputNode.AddOutgoingConnection() напрямую в ДВА узла
-    /// одновременно (DeviceOutput + FrameOutput для анализа) бросает
-    /// XAUDIO2_E_INVALID_CALL (0x88960001) на этом устройстве — похоже, узел
-    /// чтения сжатого файла не поддерживает больше одного исходящего
-    /// соединения надёжно. Решение: между FileInput и двумя потребителями
-    /// стоит промежуточный AudioSubmixNode — именно submix-узлы штатно
-    /// поддерживают разветвление на несколько выходов. FileInput → Submix →
-    /// (DeviceOutput И FrameOutput для VisualizerService). Дрейфа по-прежнему
-    /// нет — это всё ещё один и тот же поток данных, просто с одной
-    /// промежуточной точкой разветвления.
+    /// РЕШАЮЩЕЕ доказательство, что дело было именно в нашей AudioGraph-
+    /// архитектуре, а не в самом устройстве: тот же файл в VLC и системном
+    /// плеере (оба почти наверняка построены на MediaPlayer) играет идеально
+    /// на этом же телефоне. MediaPlayer — высокоуровневый, годами отточенный
+    /// платформой API, здесь доказанно стабилен.
     ///
-    /// Пробовали убрать Submix полностью (FileInput → DeviceOutput напрямую,
-    /// эквалайзер на FileInput) в рамках диагностики редких щелчков в
-    /// звуке — граф вообще перестаёт строиться. FileInput (декодирование
-    /// сжатого формата происходит прямо внутри него) не поддерживает
-    /// EffectDefinitions так же надёжно, как Submix. Submix необходим.
-    ///
-    /// MediaPlayer убран — вместе с ним ушли его автоматические
-    /// SystemMediaTransportControls и MediaPlaybackSession.PositionChanged.
-    /// Оба теперь реализованы вручную: SMTC заводится напрямую через
-    /// SystemMediaTransportControls.GetForCurrentView(), а позиция для
-    /// прогресс-бара читается через AudioFileInputNode.Position по таймеру
-    /// (см. MainPage) вместо push-события.
+    /// ЦЕНА ВОЗВРАТА (два известных, осознанных ограничения):
+    /// 1. Визуализатор больше не может читать тот же поток, что играет
+    ///    звук, — MediaPlayer не даёт такого доступа. Он снова читает файл
+    ///    ОТДЕЛЬНО, через свой независимый AudioGraph (см. VisualizerService).
+    ///    Небольшой дрейф между звуком и визуализацией теоретически возможен
+    ///    при частых паузах — гасим его Seek-ресинхронизацией на каждый
+    ///    Play() (см. MainPage.OnPlaybackStateChanged → _visualizer.Start(position)).
+    /// 2. EqualizerEffectDefinition и PrimaryRenderDevice (ручной выбор
+    ///    устройства вывода) — часть именно AudioGraph API, с MediaPlayer
+    ///    напрямую не работают. UI страницы эквалайзера и выбора устройства
+    ///    остался, но сами эффекты сейчас НЕ действуют на реальный звук
+    ///    (см. SetEqualizerGain/SelectedRenderDevice ниже — оба no-op).
     /// </summary>
     public class PlaybackService
     {
-        private AudioGraph _graph;
-        private AudioFileInputNode _fileInput;
-        private AudioSubmixNode _submix;
-        private AudioDeviceOutputNode _deviceOutput;
-        private EqualizerEffectDefinition _equalizer;
-        private EqualizerBand[] _equalizerBands;
+        private MediaPlayer _player;
 
-        /// <summary>
-        /// Частоты 4 полос классического графического эквалайзера — именно
-        /// столько EqualizerEffectDefinition даёт по умолчанию (проверено по
-        /// логам: Bands.Count == 4, как и в официальном примере Microsoft).
-        /// Пятая полоса была лишней — ничем не управляла, слайдер для неё
-        /// просто ничего не делал.
-        /// </summary>
-        public static readonly double[] EqualizerFrequencies = { 60, 250, 1000, 4000 };
-        // Bandwidth в этом API — не герцы, а октавы (см. официальный пример
-        // Microsoft: значения вроде 1.5/2.0). 1.0 октава — стандартный,
-        // безопасный выбор для графического эквалайзера.
-        private static readonly double[] EqualizerBandwidths = { 1.0, 1.0, 1.0, 1.2 };
-
-        public SystemMediaTransportControls Smtc { get; }
+        public SystemMediaTransportControls Smtc => _player?.SystemMediaTransportControls;
 
         /// <summary>true — сейчас играет, false — на паузе/остановлено.</summary>
         public event EventHandler<bool> PlaybackStateChanged;
 
-        public bool IsPlaying { get; private set; }
-
-        /// <summary>
-        /// Доступ к общему графу и submix-узлу — VisualizerService подключает
-        /// свой FrameOutputNode вторым исходящим соединением ОТ SUBMIX-узла
-        /// (не от FileInput напрямую — см. комментарий к классу про
-        /// XAUDIO2_E_INVALID_CALL).
-        /// </summary>
-        public AudioGraph Graph => _graph;
-        public AudioSubmixNode Submix => _submix;
-
-        /// <summary>
-        /// Меняет громкость полосы эквалайзера в реальном времени, без
-        /// пересборки графа — EqualizerBand.Gain можно менять на лету, это
-        /// как раз одно из удобств встроенного EqualizerEffectDefinition.
-        /// Не сохраняет в LocalSettings сама — это делает вызывающий код
-        /// (см. EqualizerPage), здесь только применение к текущему графу.
-        /// </summary>
-        public void SetEqualizerGain(int bandIndex, double gainDb)
-        {
-            if (_equalizerBands != null && bandIndex >= 0 && bandIndex < _equalizerBands.Length)
-            {
-                _equalizerBands[bandIndex].Gain = DbToLinearGain(gainDb);
-                AudioVisualizerPlayer.Helpers.Diag.Log($"SetEqualizerGain: полоса {bandIndex} -> {gainDb} дБ (линейно {_equalizerBands[bandIndex].Gain}), применено");
-            }
-            else
-            {
-                AudioVisualizerPlayer.Helpers.Diag.Log($"SetEqualizerGain: полоса {bandIndex} -> {gainDb} дБ, НЕ применено — _equalizerBands == null: {_equalizerBands == null} (трек ещё не загружен?)");
-            }
-        }
-
-        /// <summary>
-        /// EqualizerBand.Gain — не децибелы, а линейный коэффициент усиления
-        /// (1.0 = без изменений, а не 0.0 — именно поэтому Gain=0 бросал
-        /// ArgumentException). UI/сохранённые настройки остаются в привычных
-        /// дБ, конвертация происходит только здесь, в точке применения к
-        /// реальному API.
-        /// </summary>
-        private static float DbToLinearGain(double db) => (float)Math.Pow(10.0, db / 20.0);
-
-        /// <summary>
-        /// Ручной выбор устройства вывода пользователем (см. MainPage,
-        /// OutputDeviceComboBox) — null означает "авто" (системное значение
-        /// по умолчанию, с динамическим автослежением). Конкретное устройство
-        /// жёстко закрепляет граф за ним (PrimaryRenderDevice), теряя
-        /// автослежение — но это осознанный выбор пользователя, а не
-        /// случайный побочный эффект, поэтому здесь уместно в отличие от
-        /// автоматической установки этого свойства.
-        /// </summary>
-        public DeviceInformation SelectedRenderDevice { get; set; }
-
-        public TimeSpan Position
-        {
-            get => _fileInput?.Position ?? TimeSpan.Zero;
-            set { if (_fileInput != null) _fileInput.Seek(value); }
-        }
-
-        public TimeSpan Duration => _fileInput?.Duration ?? TimeSpan.Zero;
-
         /// <summary>Файл доиграл до конца сам (не пауза от пользователя) — сюда
         /// подписывается MainPage для автоперехода к следующему треку.</summary>
         public event EventHandler TrackEnded;
+
+        public event EventHandler NextRequested;
+        public event EventHandler PreviousRequested;
+
+        /// <summary>
+        /// В отличие от AudioGraph (где AudioFileInputNode читал метаданные
+        /// синхронно при создании узла), у MediaPlayer Duration/NaturalDuration
+        /// доступны НЕ сразу после LoadAsync — файл открывается асинхронно.
+        /// Подписывайтесь на это событие, чтобы узнать точный момент, когда
+        /// Duration уже можно читать (вместо предположения "сразу после LoadAsync").
+        /// </summary>
+        public event EventHandler MediaOpened;
 
         /// <summary>
         /// Бесконечное зацикленное воспроизведение ТЕКУЩЕГО трека — если
@@ -139,9 +69,50 @@ namespace AudioVisualizerPlayer.Services
         /// </summary>
         public bool LoopCurrentTrack { get; set; }
 
+        public bool IsPlaying =>
+            _player?.PlaybackSession != null &&
+            _player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+
+        public TimeSpan Position
+        {
+            get => _player?.PlaybackSession?.Position ?? TimeSpan.Zero;
+            set { if (_player?.PlaybackSession != null) _player.PlaybackSession.Position = value; }
+        }
+
+        public TimeSpan Duration => _player?.PlaybackSession?.NaturalDuration ?? TimeSpan.Zero;
+
+        /// <summary>
+        /// НЕ ДЕЙСТВУЕТ на реальный звук — EqualizerEffectDefinition это часть
+        /// AudioGraph API, с MediaPlayer напрямую не работает. Оставлен как
+        /// no-op, чтобы не переписывать EqualizerPage — но эффекта не будет,
+        /// пока для эквалайзера не найдётся отдельное решение.
+        /// </summary>
+        public void SetEqualizerGain(int bandIndex, double gainDb)
+        {
+            // Намеренно пусто — см. комментарий класса.
+        }
+
+        /// <summary>
+        /// НЕ ДЕЙСТВУЕТ на реальный звук — PrimaryRenderDevice это часть
+        /// AudioGraphSettings, с MediaPlayer напрямую не работает. Оставлено
+        /// как свойство (принимает значение, но ни на что не влияет), чтобы
+        /// не переписывать MainPage.OutputDeviceComboBox.
+        /// </summary>
+        public DeviceInformation SelectedRenderDevice { get; set; }
+
         public PlaybackService()
         {
-            Smtc = SystemMediaTransportControls.GetForCurrentView();
+            _player = new MediaPlayer { AutoPlay = false };
+
+            // Отключаем автоматическую обработку системных кнопок лок-скрина —
+            // обрабатываем Play/Pause/Next/Previous сами, единым путём что для
+            // аппаратных кнопок, что для кнопок в UI (RaiseNextRequested и т.п.).
+            _player.CommandManager.IsEnabled = false;
+
+            _player.MediaEnded += OnMediaEnded;
+            _player.MediaOpened += (s, a) => MediaOpened?.Invoke(this, EventArgs.Empty);
+            _player.PlaybackSession.PlaybackStateChanged += OnPlaybackSessionStateChanged;
+
             Smtc.IsPlayEnabled = true;
             Smtc.IsPauseEnabled = true;
             Smtc.IsNextEnabled = true;
@@ -149,61 +120,10 @@ namespace AudioVisualizerPlayer.Services
             Smtc.ButtonPressed += OnSmtcButtonPressed;
         }
 
-        private static int _graphCreationCount = 0;
-
-        /// <summary>
-        /// Загружает трек: создаёт AudioGraph, файловый узел и узел вывода
-        /// на динамики, соединяет их, и обновляет метаданные для лок-скрина.
-        ///
-        /// forceSampleRate сейчас снова "авто" (null) — диагностика редких
-        /// щелчков в звуке: играемый файл в тесте был 44100Гц, а мы жёстко
-        /// форсировали весь граф на 48000Гц — это означало ПОСТОЯННОЕ
-        /// пересэмплирование 44100→48000 прямо внутри декодера на всё время
-        /// воспроизведения (44100↔48000 — не круглое соотношение, 160/147,
-        /// требует интерполяции, а не простого прореживания). Явный формат
-        /// раньше был нужен ради стабильности VisualizerService.AttachToAsync
-        /// (Submix -> FrameOutput при некоторых устройствах вывода), но
-        /// визуализатор сейчас временно отключён диагностическим флагом в
-        /// MainPage — эта причина сейчас не актуальна, можно спокойно
-        /// проверить "авто" без неё. Авто также восстанавливает автослежение
-        /// за сменой аудио-устройства на лету.
-        /// </summary>
-        public async Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null, int? forceSampleRate = null)
+        public Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null)
         {
-            AudioVisualizerPlayer.Helpers.Diag.Log($"LoadAsync начат для файла: {file.Name}, forceSampleRate={(forceSampleRate?.ToString() ?? "авто")}");
-
-            // Освобождаем предыдущий граф, если уже что-то играло
-            DisposeGraph();
-            AudioVisualizerPlayer.Helpers.Diag.Log("Старый граф освобождён (если был)");
-
-            try
-            {
-                await BuildGraphAsync(file, forceSampleRate);
-                AudioVisualizerPlayer.Helpers.Diag.Log("BuildGraphAsync — УСПЕХ");
-            }
-            catch (Exception ex)
-            {
-                AudioVisualizerPlayer.Helpers.Diag.Log("BuildGraphAsync — ОШИБКА: " + ex);
-                DisposeGraph();
-                throw new InvalidOperationException(
-                    $"Не удалось создать аудио-граф (граф-попытки за сессию: {_graphCreationCount}): " + ex.Message, ex);
-            }
-
-            _fileInput.FileCompleted += (s, a) =>
-            {
-                if (LoopCurrentTrack)
-                {
-                    // Просто перематываем в начало и продолжаем — трек не
-                    // "закончился" с точки зрения плеера, TrackEnded не
-                    // стреляет, автопереход к следующему треку не запускается.
-                    _fileInput.Seek(TimeSpan.Zero);
-                    return;
-                }
-
-                IsPlaying = false;
-                PlaybackStateChanged?.Invoke(this, false);
-                TrackEnded?.Invoke(this, EventArgs.Empty);
-            };
+            var source = MediaSource.CreateFromStorageFile(file);
+            _player.Source = source;
 
             var updater = Smtc.DisplayUpdater;
             updater.Type = MediaPlaybackType.Music;
@@ -216,180 +136,12 @@ namespace AudioVisualizerPlayer.Services
             }
 
             updater.Update();
-            AudioVisualizerPlayer.Helpers.Diag.Log("LoadAsync завершён успешно (SMTC обновлён)");
+
+            return Task.CompletedTask; // async-сигнатура сохранена для совместимости вызывающего кода
         }
 
-        /// <summary>
-        /// Собирает граф целиком: AudioGraph → FileInput → Submix → DeviceOutput.
-        /// sampleRate == null — обычный путь, авто-согласование формата
-        /// (сохраняет следование за устройством по умолчанию). Значение —
-        /// явный PCM нужной частоты/2 канала/16 бит, как запасной вариант.
-        /// </summary>
-        private async Task BuildGraphAsync(StorageFile file, int? sampleRate)
-        {
-            var settings = new AudioGraphSettings(AudioRenderCategory.Media);
-            if (sampleRate.HasValue)
-            {
-                settings.EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm((uint)sampleRate.Value, 2, 16);
-            }
-
-            // Пробовали явно задать QuantumSizeSelectionMode.ClosestToDesired +
-            // DesiredSamplesPerQuantum=960 (больший квант, больше запаса) —
-            // ОТКАЧЕНО: на практике щелчки стали ЧАЩЕ, а не реже (проверено
-            // и на проводных наушниках, и на динамике — не Bluetooth-специфично).
-            // Похоже, родной аудио-стек этого устройства ожидает буфер
-            // конкретного размера, и наше "почти как хотим" вынуждало его
-            // на дополнительное согласование — само по себе источник щелчков.
-            // Оставляем системное значение по умолчанию (ничего не задаём).
-
-            // PrimaryRenderDevice намеренно НЕ задаём автоматически: это
-            // свойство жёстко привязывает граф к конкретному устройству
-            // НАВСЕГДА, отключая динамическое автослежение — даже если
-            // присвоить именно то устройство, которое сейчас и так является
-            // дефолтным. Пробовали задавать его автоматически на основе
-            // "текущего устройства по умолчанию" — это сломало автослежение
-            // вообще во всех случаях. НО если пользователь ЯВНО выбрал
-            // конкретное устройство вручную (SelectedRenderDevice, см.
-            // MainPage.OutputDeviceComboBox) — это осознанный выбор, и тут
-            // жёсткая привязка уместна: автоопределение наушников на этом
-            // устройстве ненадёжно, ручной выбор — явная подстраховка.
-            if (SelectedRenderDevice != null)
-            {
-                settings.PrimaryRenderDevice = SelectedRenderDevice;
-                AudioVisualizerPlayer.Helpers.Diag.Log($"  Используем вручную выбранное устройство: {SelectedRenderDevice.Name}");
-            }
-
-            var graphResult = await AudioGraph.CreateAsync(settings);
-            AudioVisualizerPlayer.Helpers.Diag.Log($"  AudioGraph.CreateAsync status={graphResult.Status}");
-            if (graphResult.Status != AudioGraphCreationStatus.Success)
-                throw new InvalidOperationException("Не удалось создать AudioGraph: " + graphResult.Status);
-
-            _graph = graphResult.Graph;
-            _graphCreationCount++;
-
-            var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
-            AudioVisualizerPlayer.Helpers.Diag.Log($"  CreateFileInputNodeAsync status={fileInputResult.Status}");
-            if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
-                throw new InvalidOperationException("Не удалось открыть файл: " + fileInputResult.Status);
-
-            _fileInput = fileInputResult.FileInputNode;
-
-            // Промежуточный submix-узел — на него заводим ЕДИНСТВЕННОЕ исходящее
-            // соединение от FileInput (сам FileInput его надёжно поддерживает),
-            // а дальше уже от submix идут ДВА соединения: в динамики и в
-            // VisualizerService. Напрямую от FileInput два соединения давали
-            // XAUDIO2_E_INVALID_CALL на этом устройстве.
-            //
-            // Пробовали убрать Submix ПОЛНОСТЬЮ (FileInput -> DeviceOutput
-            // напрямую, эквалайзер на FileInput) в рамках диагностики щелчков —
-            // ОТКАЧЕНО: граф вообще перестаёт строиться. Похоже, FileInput
-            // (узел чтения СЖАТОГО формата — декодирование происходит прямо
-            // внутри него) не поддерживает EffectDefinitions так же надёжно,
-            // как Submix, который работает уже с готовым PCM-потоком.
-            _submix = _graph.CreateSubmixNode();
-            AudioVisualizerPlayer.Helpers.Diag.Log("  Submix создан, перед FileInput.AddOutgoingConnection(Submix)");
-            _fileInput.AddOutgoingConnection(_submix);
-            AudioVisualizerPlayer.Helpers.Diag.Log("  FileInput -> Submix подключено");
-
-            // Эквалайзер вешаем на Submix — единственную точку, через которую
-            // проходит ВЕСЬ звук (и в динамики, и в анализ визуализатора).
-            try
-            {
-                _equalizer = new EqualizerEffectDefinition(_graph);
-
-                // Bands уже создаются по умолчанию конструктором — отдельного
-                // способа "добавить" полосу нет, просто настраиваем уже
-                // существующие. На случай если по умолчанию их окажется
-                // меньше 5 — берём сколько реально есть, не выходим за границы.
-                int availableBands = _equalizer.Bands.Count;
-                int bandCount = Math.Min(availableBands, EqualizerFrequencies.Length);
-                AudioVisualizerPlayer.Helpers.Diag.Log($"  Эквалайзер: доступно полос по умолчанию = {availableBands}, используем {bandCount}");
-
-                _equalizerBands = new EqualizerBand[bandCount];
-                for (int i = 0; i < bandCount; i++)
-                {
-                    double gain = (App.EqualizerGainsDb != null && i < App.EqualizerGainsDb.Length)
-                        ? App.EqualizerGainsDb[i] : 0.0;
-                    var band = _equalizer.Bands[i];
-
-                    try
-                    {
-                        band.FrequencyCenter = (float)EqualizerFrequencies[i];
-                    }
-                    catch (Exception exFreq)
-                    {
-                        AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: FrequencyCenter={EqualizerFrequencies[i]} — ОШИБКА: {exFreq.Message}");
-                        throw;
-                    }
-
-                    try
-                    {
-                        band.Bandwidth = (float)EqualizerBandwidths[i];
-                    }
-                    catch (Exception exBw)
-                    {
-                        AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: Bandwidth={EqualizerBandwidths[i]} — ОШИБКА: {exBw.Message}");
-                        throw;
-                    }
-
-                    try
-                    {
-                        band.Gain = DbToLinearGain(gain);
-                    }
-                    catch (Exception exGain)
-                    {
-                        AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: Gain={gain} дБ (линейно {DbToLinearGain(gain)}) — ОШИБКА: {exGain.Message}");
-                        throw;
-                    }
-
-                    AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: FrequencyCenter={EqualizerFrequencies[i]}, Bandwidth={EqualizerBandwidths[i]}, Gain={gain} — все три применены успешно");
-                    _equalizerBands[i] = band;
-                }
-                _submix.EffectDefinitions.Add(_equalizer);
-
-                // Явно включаем — не полагаемся на предположение, что Add()
-                // сам по себе активирует эффект по умолчанию.
-                _submix.EnableEffectsByDefinition(_equalizer);
-                AudioVisualizerPlayer.Helpers.Diag.Log("  Эквалайзер создан, подключён к Submix и явно включён");
-            }
-            catch (Exception ex)
-            {
-                // Не критично — если эквалайзер почему-то не создался, звук
-                // просто играет без него (плоская АЧХ), это не должно ронять
-                // всю загрузку трека.
-                AudioVisualizerPlayer.Helpers.Diag.Log("  Не удалось создать эквалайзер: " + ex);
-                _equalizer = null;
-                _equalizerBands = null;
-            }
-
-            var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
-            AudioVisualizerPlayer.Helpers.Diag.Log($"  CreateDeviceOutputNodeAsync status={deviceOutputResult.Status}");
-            if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
-                throw new InvalidOperationException("Не удалось создать вывод на устройство: " + deviceOutputResult.Status);
-
-            _deviceOutput = deviceOutputResult.DeviceOutputNode;
-            AudioVisualizerPlayer.Helpers.Diag.Log("  DeviceOutput создан, перед Submix.AddOutgoingConnection(DeviceOutput)");
-            _submix.AddOutgoingConnection(_deviceOutput);
-            AudioVisualizerPlayer.Helpers.Diag.Log("  Submix -> DeviceOutput подключено — BuildGraphAsync завершён");
-        }
-
-        public void Play()
-        {
-            AudioVisualizerPlayer.Helpers.Diag.Log($"Play() вызван, _graph == null: {_graph == null}");
-            _graph?.Start();
-            IsPlaying = true;
-            Smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
-            PlaybackStateChanged?.Invoke(this, true);
-        }
-
-        public void Pause()
-        {
-            AudioVisualizerPlayer.Helpers.Diag.Log("Pause() вызван");
-            _graph?.Stop();
-            IsPlaying = false;
-            Smtc.PlaybackStatus = MediaPlaybackStatus.Paused;
-            PlaybackStateChanged?.Invoke(this, false);
-        }
+        public void Play() => _player.Play();
+        public void Pause() => _player.Pause();
 
         public void TogglePlayPause()
         {
@@ -397,21 +149,38 @@ namespace AudioVisualizerPlayer.Services
             else Play();
         }
 
-        // Сюда подключить реальный плейлист — сейчас просто пробрасываем наружу
-        public event EventHandler NextRequested;
-        public event EventHandler PreviousRequested;
-
         // Публичные методы-триггеры: событие нельзя инициировать (Invoke) снаружи
         // объявляющего класса — только через += / -=. Кнопки Next/Prev в UI
         // должны вызывать именно эти методы, а не трогать событие напрямую.
         public void RaiseNextRequested() => NextRequested?.Invoke(this, EventArgs.Empty);
         public void RaisePreviousRequested() => PreviousRequested?.Invoke(this, EventArgs.Empty);
 
+        private void OnMediaEnded(MediaPlayer sender, object args)
+        {
+            if (LoopCurrentTrack)
+            {
+                // Просто перематываем в начало и продолжаем — трек не
+                // "закончился" с точки зрения плеера, TrackEnded не стреляет,
+                // автопереход к следующему треку не запускается.
+                _player.PlaybackSession.Position = TimeSpan.Zero;
+                _player.Play();
+                return;
+            }
+
+            TrackEnded?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void OnPlaybackSessionStateChanged(MediaPlaybackSession sender, object args)
+        {
+            bool playing = sender.PlaybackState == MediaPlaybackState.Playing;
+            PlaybackStateChanged?.Invoke(this, playing);
+            Smtc.PlaybackStatus = playing ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
+        }
+
         private void OnSmtcButtonPressed(SystemMediaTransportControls sender, SystemMediaTransportControlsButtonPressedEventArgs args)
         {
             // Обработчик вызывается в фоновом потоке. Play()/Pause() здесь —
-            // это вызовы AudioGraph.Start()/Stop(), они thread-safe и не требуют
-            // UI-потока (в отличие от, например, обновления Rectangle.Height).
+            // это вызовы MediaPlayer.Play()/Pause(), thread-safe, не требуют UI-потока.
             switch (args.Button)
             {
                 case SystemMediaTransportControlsButton.Play:
@@ -427,19 +196,6 @@ namespace AudioVisualizerPlayer.Services
                     PreviousRequested?.Invoke(this, EventArgs.Empty);
                     break;
             }
-        }
-
-        private void DisposeGraph()
-        {
-            _graph?.Stop();
-            _fileInput?.Dispose();
-            _graph?.Dispose();
-            _graph = null;
-            _fileInput = null;
-            _submix = null;
-            _deviceOutput = null;
-            _equalizer = null;
-            _equalizerBands = null;
         }
     }
 }

@@ -31,18 +31,6 @@ namespace AudioVisualizerPlayer
 
         private bool _trackLoaded = false;
         private bool _mainPageLoadedOnce = false;
-
-        // ВРЕМЕННЫЙ диагностический флаг — проверяем, трещит ли звук вообще
-        // без визуализатора (ни FFT, ни фоновых Task.Run, только голое
-        // воспроизведение через Submix -> DeviceOutput). После теста либо
-        // вернуть в false, либо убрать совсем.
-        private const bool DisableVisualizerForDiagnostics = true;
-
-        // ВРЕМЕННЫЙ диагностический флаг — проверяем, не даёт ли щелчки сам
-        // DispatcherTimer (PositionTimer_Tick, читает _fileInput.Position и
-        // обновляет UI каждые 500мс). Визуализатор уже исключили — идём по
-        // списку дальше.
-        private const bool DisablePositionTimerForDiagnostics = true;
         private DispatcherTimer _positionTimer;
 
         // true, когда мы САМИ меняем ProgressSlider.Value из таймера позиции —
@@ -171,13 +159,10 @@ namespace AudioVisualizerPlayer
                 };
 
                 // Позиция и длительность — раз в 500мс опрашиваем
-                // AudioFileInputNode.Position через PlaybackService.
+                // MediaPlayer.PlaybackSession.Position через PlaybackService.
                 _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
                 _positionTimer.Tick += PositionTimer_Tick;
-                if (!DisablePositionTimerForDiagnostics)
-                {
-                    _positionTimer.Start();
-                }
+                _positionTimer.Start();
 
                 // Автоопределение наушников на этом устройстве ненадёжно —
                 // список устройств вывода заполняем один раз при старте,
@@ -196,10 +181,7 @@ namespace AudioVisualizerPlayer
         {
             base.OnNavigatedTo(e);
 
-            if (!DisablePositionTimerForDiagnostics)
-            {
-                _positionTimer?.Start();
-            }
+            _positionTimer?.Start();
 
             // Возврат со страницы плейлиста с выбранным треком
             if (App.RequestedPlaylistIndex.HasValue)
@@ -217,14 +199,20 @@ namespace AudioVisualizerPlayer
 
             // Просто возврат на страницу (без выбора трека) — если трек уже
             // играет, визуализатор был освобождён в OnNavigatedFrom и его
-            // нужно подключить заново к тому же (всё ещё играющему) графу.
-            if (!DisableVisualizerForDiagnostics && _trackLoaded && _visualizer == null)
+            // нужно подключить заново (свой независимый AudioGraph, читает
+            // тот же файл отдельно от звука — см. VisualizerService).
+            if (_trackLoaded && _visualizer == null
+                && App.CurrentPlaylistIndex >= 0 && App.CurrentPlaylistIndex < App.CurrentPlaylist.Count)
             {
                 try
                 {
                     _visualizer = new VisualizerService();
-                    await _visualizer.AttachToAsync(_playback);
+                    await _visualizer.InitializeAsync(App.CurrentPlaylist[App.CurrentPlaylistIndex].File);
                     _visualizer.LevelsChanged += OnLevelsChanged;
+                    if (_playback.IsPlaying)
+                    {
+                        _visualizer.Start(_playback.Position); // ресинхронизация — минимизируем накопившийся дрейф
+                    }
                 }
                 catch
                 {
@@ -651,30 +639,38 @@ namespace AudioVisualizerPlayer
         /// </summary>
         private async Task LoadTrackAsync(PlaylistItem item)
         {
-
-            // ВАЖНО: старый VisualizerService нужно освободить ДО вызова
-            // _playback.LoadAsync — тот внутри себя вызывает DisposeGraph()
-            // и сносит старый AudioGraph/AudioFileInputNode ПЕРВЫМ делом при
-            // загрузке нового трека. Если освобождать визуализатор ПОСЛЕ
-            // LoadAsync, Detach() пытается отписаться от графа, который
-            // PlaybackService уже уничтожил мгновением раньше —
-            // отсюда ObjectDisposedException при переключении треков.
+            // Старый VisualizerService нужно освободить до загрузки нового
+            // трека — у него свой независимый AudioGraph, полностью отдельный
+            // от PlaybackService, но всё равно лучше не плодить лишние графы.
             _visualizer?.Dispose();
             _visualizer = null;
 
             try
             {
+                // Duration у MediaPlayer доступна НЕ сразу после LoadAsync —
+                // файл открывается асинхронно (в отличие от AudioGraph, где
+                // AudioFileInputNode читал метаданные синхронно при создании
+                // узла). Подписываемся на MediaOpened и обновляем UI оттуда;
+                // -= сразу после первого срабатывания, чтобы не подписываться
+                // повторно на следующий трек поверх старой подписки.
+                EventHandler onMediaOpened = null;
+                onMediaOpened = (s, a) =>
+                {
+                    _playback.MediaOpened -= onMediaOpened;
+                    var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                    {
+                        ProgressSlider.Maximum = _playback.Duration.TotalSeconds;
+                        DurationText.Text = FormatTime(_playback.Duration);
+                    });
+                };
+                _playback.MediaOpened += onMediaOpened;
+
                 await _playback.LoadAsync(item.File, title: item.Title, artist: item.Artist);
 
                 TrackTitleText.Text = item.Title;
                 TrackTitleText2.Text = item.Title; // вторая копия для кольцевой бегущей строки
                 TrackArtistText.Text = item.Artist;
                 StartTitleMarqueeIfNeeded();
-
-                // Duration доступна сразу после LoadAsync — AudioFileInputNode
-                // читает метаданные файла синхронно при создании узла.
-                ProgressSlider.Maximum = _playback.Duration.TotalSeconds;
-                DurationText.Text = FormatTime(_playback.Duration);
             }
             catch (Exception ex)
             {
@@ -683,25 +679,21 @@ namespace AudioVisualizerPlayer
 
             try
             {
-                if (!DisableVisualizerForDiagnostics)
-                {
-                    _visualizer = new VisualizerService();
-                    await _visualizer.AttachToAsync(_playback);
-                    _visualizer.LevelsChanged += OnLevelsChanged;
-                }
-                // Отдельного Start()/Stop() у визуализатора нет — он просто
-                // подключён вторым выходом к общему AudioGraph и получает кадры
-                // ровно тогда, когда играет реальный звук (единственный
-                // источник Start/Stop — _playback.Play()/Pause()).
+                // Визуализатор — свой независимый AudioGraph, читает тот же
+                // файл ОТДЕЛЬНО от звука (звук идёт через MediaPlayer). Не
+                // запускаем здесь — Start() вызывается из OnPlaybackStateChanged,
+                // сразу после того как реально начнётся воспроизведение
+                // (см. LoadAndPlayCurrentAsync → _playback.Play() чуть ниже).
+                _visualizer = new VisualizerService();
+                await _visualizer.InitializeAsync(item.File);
+                _visualizer.LevelsChanged += OnLevelsChanged;
             }
             catch (Exception ex)
             {
                 // Визуализация — не критичная часть воспроизведения: если она
                 // не подключилась, просто логируем и продолжаем — звук должен
-                // заиграть сам, без ручного повторного нажатия. Пересборка с
-                // явным форматом больше не нужна — LoadAsync теперь всегда
-                // использует явные 48000Гц с самого начала.
-                Diag.Log("VisualizerService.AttachTo провалился, звук продолжит играть без визуализации: " + ex);
+                // заиграть сам.
+                Diag.Log("VisualizerService.InitializeAsync провалился, звук продолжит играть без визуализации: " + ex);
                 _visualizer?.Dispose();
                 _visualizer = null;
             }
@@ -806,9 +798,20 @@ namespace AudioVisualizerPlayer
 
         private void OnPlaybackStateChanged(object sender, bool isPlaying)
         {
-            // Визуализатор отдельно не запускается/останавливается — он
-            // подключён к общему AudioGraph, который уже сам стартует/стопится
-            // внутри _playback.Play()/Pause().
+            // Визуализатор теперь снова свой независимый AudioGraph (звук
+            // идёт через MediaPlayer, полностью отдельно) — синхронизируем
+            // вручную: запускаем/останавливаем вместе с реальным звуком,
+            // и при запуске пересинхронизируем позицию (Seek), чтобы
+            // минимизировать дрейф, накопившийся за время паузы.
+            if (isPlaying)
+            {
+                _visualizer?.Start(_playback.Position);
+            }
+            else
+            {
+                _visualizer?.Stop();
+            }
+
             var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
                 PlayPauseIcon.Symbol = isPlaying ? Symbol.Pause : Symbol.Play;
