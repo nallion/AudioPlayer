@@ -74,10 +74,15 @@ namespace AudioVisualizerPlayer
 
         private async System.Threading.Tasks.Task LoadDemoTrackAsync()
         {
-            var picker = new FileOpenPicker
-            {
-                SuggestedStartLocation = PickerLocationId.MusicLibrary
-            };
+            // SuggestedStartLocation=MusicLibrary убран: на этом устройстве
+            // доступ к библиотеке "Музыка" требует ещё и отдельного пользовательского
+            // разрешения (Settings → Privacy → Music Library), которое не выдаётся
+            // автоматически даже при наличии capability musicLibrary в манифесте —
+            // вместо диалога согласия FileOpenPicker сразу бросал
+            // UnauthorizedAccessException (0x80070005). Без SuggestedStartLocation
+            // пикер открывается в обычном режиме, который никаких специальных
+            // прав не требует вообще.
+            var picker = new FileOpenPicker();
             picker.FileTypeFilter.Add(".mp3");
             picker.FileTypeFilter.Add(".wav");
             picker.FileTypeFilter.Add(".m4a");
