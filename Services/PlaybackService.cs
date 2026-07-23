@@ -52,7 +52,10 @@ namespace AudioVisualizerPlayer.Services
         /// просто влияет на "ширину" влияния каждого слайдера.
         /// </summary>
         public static readonly double[] EqualizerFrequencies = { 60, 250, 1000, 4000, 12000 };
-        private static readonly double[] EqualizerBandwidths = { 50, 150, 800, 2500, 6000 };
+        // Bandwidth в этом API — не герцы, а октавы (см. официальный пример
+        // Microsoft: значения вроде 1.5/2.0). 1.0 октава — стандартный,
+        // безопасный выбор для графического эквалайзера на 5 полос.
+        private static readonly double[] EqualizerBandwidths = { 1.0, 1.0, 1.0, 1.0, 1.2 };
 
         public SystemMediaTransportControls Smtc { get; }
 
@@ -81,7 +84,7 @@ namespace AudioVisualizerPlayer.Services
         {
             if (_equalizerBands != null && bandIndex >= 0 && bandIndex < _equalizerBands.Length)
             {
-                _equalizerBands[bandIndex].Gain = gainDb;
+                _equalizerBands[bandIndex].Gain = (float)gainDb;
             }
         }
 
@@ -240,16 +243,24 @@ namespace AudioVisualizerPlayer.Services
             try
             {
                 _equalizer = new EqualizerEffectDefinition(_graph);
-                _equalizer.NumberOfBands = (uint)EqualizerFrequencies.Length;
-                _equalizerBands = new EqualizerBand[EqualizerFrequencies.Length];
-                for (int i = 0; i < EqualizerFrequencies.Length; i++)
+
+                // Bands уже создаются по умолчанию конструктором — отдельного
+                // способа "добавить" полосу нет, просто настраиваем уже
+                // существующие. На случай если по умолчанию их окажется
+                // меньше 5 — берём сколько реально есть, не выходим за границы.
+                int availableBands = _equalizer.Bands.Count;
+                int bandCount = Math.Min(availableBands, EqualizerFrequencies.Length);
+                AudioVisualizerPlayer.Helpers.Diag.Log($"  Эквалайзер: доступно полос по умолчанию = {availableBands}, используем {bandCount}");
+
+                _equalizerBands = new EqualizerBand[bandCount];
+                for (int i = 0; i < bandCount; i++)
                 {
                     double gain = (App.EqualizerGainsDb != null && i < App.EqualizerGainsDb.Length)
                         ? App.EqualizerGainsDb[i] : 0.0;
-                    var band = _equalizer.Bands[(uint)i];
-                    band.CenterFrequency = EqualizerFrequencies[i];
-                    band.Bandwidth = EqualizerBandwidths[i];
-                    band.Gain = gain;
+                    var band = _equalizer.Bands[i];
+                    band.FrequencyCenter = (float)EqualizerFrequencies[i];
+                    band.Bandwidth = (float)EqualizerBandwidths[i];
+                    band.Gain = (float)gain;
                     _equalizerBands[i] = band;
                 }
                 _submix.EffectDefinitions.Add(_equalizer);
