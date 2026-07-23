@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
+using Windows.Media.Audio;
+using Windows.Media.Render;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
@@ -99,6 +101,19 @@ namespace AudioVisualizerPlayer
                 if (Playback == null)
                 {
                     Playback = new PlaybackService();
+
+                    // "Прогрев" аудио-движка: по логам видно, что именно САМЫЙ
+                    // ПЕРВЫЙ AudioGraph, который процесс создаёт после
+                    // холодного старта с уже подключёнными наушниками,
+                    // стабильно не может подключить второе соединение
+                    // (Submix -> FrameOutput) — а на ВТОРОМ и последующих
+                    // графах в течение той же сессии это иногда получается.
+                    // Похоже на разовую заминку инициализации аудио-движка.
+                    // Специально проводим процесс через эту заминку здесь,
+                    // на невидимом техническом графе, ДО того как пользователь
+                    // вообще выберет файл — тогда к реальному треку эта
+                    // проблема уже будет пройдена.
+                    _ = WarmUpAudioEngineAsync();
                 }
 
                 Frame rootFrame = Window.Current.Content as Frame;
@@ -132,6 +147,57 @@ namespace AudioVisualizerPlayer
         private void OnNavigationFailed(object sender, NavigationFailedEventArgs e)
         {
             throw new System.Exception("Failed to load Page " + e.SourcePageType.FullName);
+        }
+
+        /// <summary>
+        /// Одноразовый технический AudioGraph с тем же паттерном соединений,
+        /// что использует реальное воспроизведение (Submix с ДВУМЯ исходящими
+        /// соединениями) — специально создаётся и сразу уничтожается при
+        /// старте приложения, до того как пользователь выберет файл. Если
+        /// именно первый графа в процессе имеет разовую заминку инициализации
+        /// (см. комментарий в OnLaunched), она случится здесь, на невидимом
+        /// техническом графе, а не на реальном треке пользователя. Работает
+        /// в фоне (fire-and-forget) — не блокирует запуск приложения; любые
+        /// ошибки здесь просто проглатываются, это диагностически-профилактический
+        /// шаг, а не критичная функциональность.
+        /// </summary>
+        private static async System.Threading.Tasks.Task WarmUpAudioEngineAsync()
+        {
+            AudioGraph graph = null;
+            try
+            {
+                AudioVisualizerPlayer.Helpers.Diag.Log("WarmUp: начало");
+                var graphResult = await AudioGraph.CreateAsync(new AudioGraphSettings(AudioRenderCategory.Media));
+                AudioVisualizerPlayer.Helpers.Diag.Log($"WarmUp: AudioGraph.CreateAsync status={graphResult.Status}");
+                if (graphResult.Status != AudioGraphCreationStatus.Success) return;
+                graph = graphResult.Graph;
+
+                var submix = graph.CreateSubmixNode();
+
+                var deviceOutputResult = await graph.CreateDeviceOutputNodeAsync();
+                AudioVisualizerPlayer.Helpers.Diag.Log($"WarmUp: CreateDeviceOutputNodeAsync status={deviceOutputResult.Status}");
+                if (deviceOutputResult.Status == AudioDeviceNodeCreationStatus.Success)
+                {
+                    submix.AddOutgoingConnection(deviceOutputResult.DeviceOutputNode);
+                    AudioVisualizerPlayer.Helpers.Diag.Log("WarmUp: Submix -> DeviceOutput подключено");
+                }
+
+                var frameOutput = graph.CreateFrameOutputNode(graph.EncodingProperties);
+                submix.AddOutgoingConnection(frameOutput); // здесь и была замечена заминка — пусть случится тут
+                AudioVisualizerPlayer.Helpers.Diag.Log("WarmUp: Submix -> FrameOutput подключено успешно");
+            }
+            catch (Exception ex)
+            {
+                // Ожидаемо может упасть — в этом и смысл: пусть падает здесь,
+                // на техническом графе, а не на реальном треке пользователя.
+                AudioVisualizerPlayer.Helpers.Diag.Log("WarmUp: ошибка (ожидаемо возможна) — " + ex.Message);
+            }
+            finally
+            {
+                graph?.Stop();
+                graph?.Dispose();
+                AudioVisualizerPlayer.Helpers.Diag.Log("WarmUp: технический граф уничтожен, завершено");
+            }
         }
 
         private void OnSuspending(object sender, SuspendingEventArgs e)
