@@ -54,9 +54,22 @@ namespace AudioVisualizerPlayer.Helpers
 
         /// <summary>
         /// Группирует спектр в barCount полос по логарифмической шкале
-        /// и возвращает СЫРЫЕ средние амплитуды (без нормализации к 0..1) —
-        /// адаптивную нормализацию (AGC) делает VisualizerService, у которого
-        /// есть состояние между кадрами.
+        /// и возвращает СЫРЫЕ (без AGC) амплитуды — адаптивную нормализацию
+        /// делает VisualizerService, у которого есть состояние между кадрами.
+        ///
+        /// Внутри полосы берём MAX, а не среднее: высокочастотный контент
+        /// в музыке чаще всего короткие всплески (тарелки, хай-хэт), а не
+        /// постоянный гул — на широких высокочастотных полосах (там много
+        /// бинов на полосу) среднее просто размывало яркий всплеск среди
+        /// тишины рядом почти до нуля.
+        ///
+        /// Плюс частотная коррекция (compensationGain): у большинства
+        /// реальной музыки энергия естественным образом спадает к высоким
+        /// частотам — без компенсации верхние полосы визуально почти всегда
+        /// оставались бы тусклыми по сравнению с басом, даже если MAX уже
+        /// ловит транзиенты. Коэффициент растёт линейно от 1.0 (самый бас)
+        /// до 4.0 (самые высокие частоты) — подобрано на глаз, крути смело,
+        /// если захочется другой баланс.
         /// </summary>
         public static float[] ToBars(Complex[] spectrum, int barCount)
         {
@@ -74,12 +87,12 @@ namespace AudioVisualizerPlayer.Helpers
                 int lo = Math.Max(1, (int)loEdge);
                 int hi = Math.Min(usableBins, Math.Max(lo + 1, (int)hiEdge));
 
-                double sum = 0;
+                double max = 0;
                 for (int i = lo; i < hi; i++)
-                    sum += spectrum[i].Magnitude;
+                    if (spectrum[i].Magnitude > max) max = spectrum[i].Magnitude;
 
-                double avg = sum / (hi - lo);
-                bars[b] = (float)avg;
+                double compensationGain = 1.0 + 3.0 * b / (barCount - 1);
+                bars[b] = (float)(max * compensationGain);
             }
 
             return bars;
