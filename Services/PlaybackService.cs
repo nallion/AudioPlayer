@@ -150,30 +150,16 @@ namespace AudioVisualizerPlayer.Services
                 settings.EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm((uint)sampleRate.Value, 2, 16);
             }
 
-            // Явно указываем ИМЕННО текущее устройство вывода по умолчанию —
-            // судя по симптому ("звук всегда идёт через динамик, даже когда
-            // наушники подключены"), при заданном явном EncodingProperties
-            // выбор устройства по умолчанию у AudioGraph.CreateAsync ведёт
-            // себя иначе, чем при авто-формате, и может выбрать не то
-            // устройство. Явно запрашиваем DeviceInformation текущего
-            // устройства рендера и передаём его графу напрямую — не полагаясь
-            // на побочный эффект от формата.
-            try
-            {
-                string defaultRenderId = Windows.Media.Devices.MediaDevice.GetDefaultAudioRenderId(Windows.Media.Devices.AudioDeviceRole.Default);
-                if (!string.IsNullOrEmpty(defaultRenderId))
-                {
-                    var deviceInfo = await Windows.Devices.Enumeration.DeviceInformation.CreateFromIdAsync(defaultRenderId);
-                    settings.PrimaryRenderDevice = deviceInfo;
-                    AudioVisualizerPlayer.Helpers.Diag.Log($"  PrimaryRenderDevice явно установлен: {deviceInfo?.Name}");
-                }
-            }
-            catch (Exception ex)
-            {
-                // Не критично — если не получилось узнать устройство явно,
-                // просто продолжаем без него (как раньше, авто-выбор).
-                AudioVisualizerPlayer.Helpers.Diag.Log("  Не удалось явно определить устройство рендера: " + ex.Message);
-            }
+            // PrimaryRenderDevice намеренно НЕ задаём: это свойство жёстко
+            // привязывает граф к конкретному устройству НАВСЕГДА, отключая
+            // динамическое автослежение за текущим устройством по умолчанию —
+            // даже если присвоить именно то устройство, которое сейчас и так
+            // является дефолтным. Пробовали явно его задавать, решив, что это
+            // исправит выбор не того устройства при явном EncodingProperties —
+            // но это сломало автослежение вообще во всех случаях (наушники
+            // перестали распознаваться и при холодном старте, и на лету).
+            // Оставляем null — граф сам динамически следует за системным
+            // устройством по умолчанию, как было изначально.
 
             var graphResult = await AudioGraph.CreateAsync(settings);
             AudioVisualizerPlayer.Helpers.Diag.Log($"  AudioGraph.CreateAsync status={graphResult.Status}");
