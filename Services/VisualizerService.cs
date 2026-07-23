@@ -73,10 +73,25 @@ namespace AudioVisualizerPlayer.Services
         // большинство басовых/средних частот упираться в потолок одновременно.
         private float _agcMax = 0.01f; // не 0 — избегаем деления на ноль в тихом начале трека
 
+        // Пока идёт расчёт предыдущего кадра на фоновом потоке — новый не
+        // запускаем, просто пропускаем кванты. Не даёт очереди из Task.Run
+        // расти бесконечно, если FFT вдруг не успевает уложиться в темп
+        // поступления квантов (лучше пропустить кадр визуализации, чем
+        // копить фоновую работу).
+        private volatile bool _isProcessingFft = false;
+
         private void OnQuantumStarted(AudioGraph sender, object args)
         {
             try
             {
+                // ВАЖНО: этот метод вызывается на real-time аудио-потоке того же
+                // самого AudioGraph, что рендерит настоящий звук в динамики
+                // (раньше, при двух независимых графах, это было безопасно —
+                // тяжёлые вычисления на графе-анализаторе не могли повлиять на
+                // звук; после объединения в один граф это уже не так). Здесь
+                // должны быть только ДЁШЕВЫЕ операции — копирование сэмплов.
+                // Сам FFT и вся математика уходят в Task.Run ниже, на поток
+                // из пула потоков, чтобы не задерживать рендеринг звука.
                 Windows.Media.AudioFrame frame = _frameOutput.GetFrame();
                 float[] samples = ExtractSamples(frame);
                 if (samples == null || samples.Length == 0) return;
@@ -91,16 +106,33 @@ namespace AudioVisualizerPlayer.Services
                 }
 
                 if (_sampleBuffer.Count < FftSize) return;
+                if (_isProcessingFft) return; // предыдущий расчёт ещё не закончился
 
-                // Берём последние FftSize сэмплов из накопленного буфера
+                // Берём последние FftSize сэмплов из накопленного буфера —
+                // копия чтобы фоновый поток не читал буфер, который меняется
+                // на аудио-потоке в следующем кванте.
                 var chunk = new float[FftSize];
                 _sampleBuffer.CopyTo(_sampleBuffer.Count - FftSize, chunk, 0, FftSize);
 
-                Complex[] spectrum = FFT.Transform(chunk);
-                float[] bars = FFT.ToBars(spectrum, BarCount);
-                NormalizeWithAgc(bars);
-
-                LevelsChanged?.Invoke(this, bars);
+                _isProcessingFft = true;
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        Complex[] spectrum = FFT.Transform(chunk);
+                        float[] bars = FFT.ToBars(spectrum, BarCount);
+                        NormalizeWithAgc(bars);
+                        LevelsChanged?.Invoke(this, bars);
+                    }
+                    catch
+                    {
+                        // Ошибка в расчёте — просто пропускаем этот кадр визуализации.
+                    }
+                    finally
+                    {
+                        _isProcessingFft = false;
+                    }
+                });
             }
             catch
             {
