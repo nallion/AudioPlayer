@@ -224,14 +224,21 @@ namespace AudioVisualizerPlayer.Services
                 if (_graph != null)
                 {
                     _graph.QuantumStarted -= OnQuantumStarted;
+                    Diag.Log("VisualizerService.Dispose: после отписки QuantumStarted");
+
+                    // ВАЖНО: граф нужно ОСТАНОВИТЬ до того, как начать
+                    // освобождать его узлы — освобождение AudioFrameOutputNode
+                    // на ещё активно работающем графе (реально гоняющем кванты)
+                    // давало настоящий deadlock на этом устройстве. Раньше
+                    // Stop() стоял почти в самом конце, после Dispose() узлов —
+                    // именно поэтому и зависало.
+                    _graph.Stop();
+                    Diag.Log("VisualizerService.Dispose: после _graph.Stop()");
                 }
-                Diag.Log("VisualizerService.Dispose: после отписки QuantumStarted");
                 _frameOutput?.Dispose();
                 Diag.Log("VisualizerService.Dispose: после _frameOutput.Dispose()");
                 _fileInput?.Dispose();
                 Diag.Log("VisualizerService.Dispose: после _fileInput.Dispose()");
-                _graph?.Stop();
-                Diag.Log("VisualizerService.Dispose: после _graph.Stop()");
                 _graph?.Dispose();
                 Diag.Log("VisualizerService.Dispose: после _graph.Dispose() — готово");
             }
