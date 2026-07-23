@@ -37,6 +37,12 @@ namespace AudioVisualizerPlayer
         // воспроизведение через Submix -> DeviceOutput). После теста либо
         // вернуть в false, либо убрать совсем.
         private const bool DisableVisualizerForDiagnostics = true;
+
+        // ВРЕМЕННЫЙ диагностический флаг — проверяем, не даёт ли щелчки сам
+        // DispatcherTimer (PositionTimer_Tick, читает _fileInput.Position и
+        // обновляет UI каждые 500мс). Визуализатор уже исключили — идём по
+        // списку дальше.
+        private const bool DisablePositionTimerForDiagnostics = true;
         private DispatcherTimer _positionTimer;
 
         // true, когда мы САМИ меняем ProgressSlider.Value из таймера позиции —
@@ -168,7 +174,10 @@ namespace AudioVisualizerPlayer
                 // AudioFileInputNode.Position через PlaybackService.
                 _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
                 _positionTimer.Tick += PositionTimer_Tick;
-                _positionTimer.Start();
+                if (!DisablePositionTimerForDiagnostics)
+                {
+                    _positionTimer.Start();
+                }
 
                 // Автоопределение наушников на этом устройстве ненадёжно —
                 // список устройств вывода заполняем один раз при старте,
@@ -187,7 +196,10 @@ namespace AudioVisualizerPlayer
         {
             base.OnNavigatedTo(e);
 
-            _positionTimer?.Start();
+            if (!DisablePositionTimerForDiagnostics)
+            {
+                _positionTimer?.Start();
+            }
 
             // Возврат со страницы плейлиста с выбранным треком
             if (App.RequestedPlaylistIndex.HasValue)
