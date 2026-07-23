@@ -12,6 +12,7 @@ using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Animation;
 using Windows.UI.Xaml.Shapes;
 using Windows.UI.Xaml.Navigation;
+using AudioVisualizerPlayer.Helpers;
 using AudioVisualizerPlayer.Models;
 using AudioVisualizerPlayer.Services;
 
@@ -462,14 +463,17 @@ namespace AudioVisualizerPlayer
         {
             if (App.CurrentPlaylistIndex < 0 || App.CurrentPlaylistIndex >= App.CurrentPlaylist.Count) return;
 
+            Diag.Log($"LoadAndPlayCurrentAsync: индекс {App.CurrentPlaylistIndex}, файл {App.CurrentPlaylist[App.CurrentPlaylistIndex].File.Name}");
             try
             {
                 await LoadTrackAsync(App.CurrentPlaylist[App.CurrentPlaylistIndex]);
                 _trackLoaded = true;
                 _playback.Play();
+                Diag.Log("LoadAndPlayCurrentAsync: Play() вызван успешно");
             }
             catch (Exception ex)
             {
+                Diag.Log("LoadAndPlayCurrentAsync: ИСКЛЮЧЕНИЕ (звук тоже не запустится): " + ex);
                 await new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка загрузки трека").ShowAsync();
             }
         }
@@ -523,7 +527,18 @@ namespace AudioVisualizerPlayer
             }
             catch (Exception ex)
             {
-                throw new Exception("VisualizerService.AttachTo (" + item.File.Name + "): " + ex.Message, ex);
+                // ВАЖНО: раньше это исключение пробрасывалось наверх и прерывало
+                // LoadTrackAsync целиком — из-за этого _playback.Play() в
+                // LoadAndPlayCurrentAsync не успевал вызваться автоматически
+                // (он стоит ПОСЛЕ await LoadTrackAsync), и пользователю
+                // приходилось нажимать Play вручную второй раз, чтобы хотя бы
+                // звук пошёл (без визуализации). Визуализация — не критичная
+                // часть воспроизведения: если она не подключилась, просто
+                // логируем и продолжаем — звук должен заиграть сам, без
+                // ручного повторного нажатия.
+                Diag.Log("VisualizerService.AttachTo провалился, звук продолжит играть без визуализации: " + ex);
+                _visualizer?.Dispose();
+                _visualizer = null;
             }
         }
 

@@ -42,6 +42,7 @@ namespace AudioVisualizerPlayer.Services
         /// </summary>
         public void AttachTo(PlaybackService playback)
         {
+            Diag.Log("VisualizerService.AttachTo вызван");
             Detach();
 
             _graph = playback.Graph;
@@ -51,9 +52,11 @@ namespace AudioVisualizerPlayer.Services
             try
             {
                 _frameOutput = _graph.CreateFrameOutputNode();
+                Diag.Log("  CreateFrameOutputNode — успех");
             }
             catch (Exception ex)
             {
+                Diag.Log("  CreateFrameOutputNode — ОШИБКА: " + ex);
                 throw new Exception($"AttachTo ШАГ A (CreateFrameOutputNode), успешных AttachTo до этого за сессию: {_attachToSuccessCount}: " + ex.Message, ex);
             }
 
@@ -62,14 +65,17 @@ namespace AudioVisualizerPlayer.Services
                 // От Submix, а не от FileInput напрямую — см. комментарий
                 // в PlaybackService про XAUDIO2_E_INVALID_CALL.
                 playback.Submix.AddOutgoingConnection(_frameOutput);
+                Diag.Log("  Submix -> FrameOutput подключено — успех");
             }
             catch (Exception ex)
             {
+                Diag.Log("  Submix -> FrameOutput — ОШИБКА: " + ex);
                 throw new Exception($"AttachTo ШАГ B (AddOutgoingConnection), успешных AttachTo до этого за сессию: {_attachToSuccessCount}: " + ex.Message, ex);
             }
 
             _graph.QuantumStarted += OnQuantumStarted;
             _attachToSuccessCount++;
+            Diag.Log($"AttachTo завершён успешно (успешных за сессию: {_attachToSuccessCount})");
         }
 
         private void Detach()

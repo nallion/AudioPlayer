@@ -87,8 +87,11 @@ namespace AudioVisualizerPlayer.Services
         /// </summary>
         public async Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null)
         {
+            AudioVisualizerPlayer.Helpers.Diag.Log($"LoadAsync начат для файла: {file.Name}");
+
             // Освобождаем предыдущий граф, если уже что-то играло
             DisposeGraph();
+            AudioVisualizerPlayer.Helpers.Diag.Log("Старый граф освобождён (если был)");
 
             // Сначала пробуем БЕЗ явного формата — это сохраняет нормальное
             // поведение "следования за устройством по умолчанию" (наушники,
@@ -102,15 +105,18 @@ namespace AudioVisualizerPlayer.Services
             for (int attempt = 1; attempt <= 2; attempt++)
             {
                 bool useExplicitFormat = attempt > 1;
+                AudioVisualizerPlayer.Helpers.Diag.Log($"Попытка {attempt}, useExplicitFormat={useExplicitFormat} — начало");
                 try
                 {
                     await BuildGraphAsync(file, useExplicitFormat);
                     lastError = null;
+                    AudioVisualizerPlayer.Helpers.Diag.Log($"Попытка {attempt} — УСПЕХ");
                     break;
                 }
                 catch (Exception ex)
                 {
                     lastError = ex;
+                    AudioVisualizerPlayer.Helpers.Diag.Log($"Попытка {attempt} — ОШИБКА: {ex}");
                     DisposeGraph(); // чистим частично созданное состояние перед повтором
                     if (attempt == 1)
                     {
@@ -121,6 +127,7 @@ namespace AudioVisualizerPlayer.Services
 
             if (lastError != null)
             {
+                AudioVisualizerPlayer.Helpers.Diag.Log("Обе попытки провалились, бросаем исключение наверх");
                 throw new InvalidOperationException(
                     $"Не удалось создать аудио-граф ни обычным способом, ни с явным форматом (граф-попытки за сессию: {_graphCreationCount}): "
                     + lastError.Message, lastError);
@@ -144,6 +151,7 @@ namespace AudioVisualizerPlayer.Services
             }
 
             updater.Update();
+            AudioVisualizerPlayer.Helpers.Diag.Log("LoadAsync завершён успешно (SMTC обновлён)");
         }
 
         /// <summary>
@@ -163,6 +171,7 @@ namespace AudioVisualizerPlayer.Services
             }
 
             var graphResult = await AudioGraph.CreateAsync(settings);
+            AudioVisualizerPlayer.Helpers.Diag.Log($"  AudioGraph.CreateAsync status={graphResult.Status}");
             if (graphResult.Status != AudioGraphCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось создать AudioGraph: " + graphResult.Status);
 
@@ -170,6 +179,7 @@ namespace AudioVisualizerPlayer.Services
             _graphCreationCount++;
 
             var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
+            AudioVisualizerPlayer.Helpers.Diag.Log($"  CreateFileInputNodeAsync status={fileInputResult.Status}");
             if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось открыть файл: " + fileInputResult.Status);
 
@@ -181,18 +191,24 @@ namespace AudioVisualizerPlayer.Services
             // VisualizerService. Напрямую от FileInput два соединения давали
             // XAUDIO2_E_INVALID_CALL на этом устройстве.
             _submix = _graph.CreateSubmixNode();
+            AudioVisualizerPlayer.Helpers.Diag.Log("  Submix создан, перед FileInput.AddOutgoingConnection(Submix)");
             _fileInput.AddOutgoingConnection(_submix);
+            AudioVisualizerPlayer.Helpers.Diag.Log("  FileInput -> Submix подключено");
 
             var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
+            AudioVisualizerPlayer.Helpers.Diag.Log($"  CreateDeviceOutputNodeAsync status={deviceOutputResult.Status}");
             if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось создать вывод на устройство: " + deviceOutputResult.Status);
 
             _deviceOutput = deviceOutputResult.DeviceOutputNode;
+            AudioVisualizerPlayer.Helpers.Diag.Log("  DeviceOutput создан, перед Submix.AddOutgoingConnection(DeviceOutput)");
             _submix.AddOutgoingConnection(_deviceOutput); // сама точка, где раньше падало на холодном старте
+            AudioVisualizerPlayer.Helpers.Diag.Log("  Submix -> DeviceOutput подключено — BuildGraphAsync завершён");
         }
 
         public void Play()
         {
+            AudioVisualizerPlayer.Helpers.Diag.Log($"Play() вызван, _graph == null: {_graph == null}");
             _graph?.Start();
             IsPlaying = true;
             Smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
@@ -201,6 +217,7 @@ namespace AudioVisualizerPlayer.Services
 
         public void Pause()
         {
+            AudioVisualizerPlayer.Helpers.Diag.Log("Pause() вызван");
             _graph?.Stop();
             IsPlaying = false;
             Smtc.PlaybackStatus = MediaPlaybackStatus.Paused;
