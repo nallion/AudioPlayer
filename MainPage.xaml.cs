@@ -143,18 +143,44 @@ namespace AudioVisualizerPlayer
                 // он играет отдельно от визуализатора.
                 App.EnteredBackground += (s, a) =>
                 {
-                    // Раньше здесь был _visualizer?.Dispose() — то есть
-                    // удаление живого соединения Submix->FrameOutput прямо
-                    // из играющего графа. Судя по всему, именно это давало
-                    // гарантированные щелчки на блокировке экрана — само
-                    // соединение не самое стабильное место на этой платформе,
-                    // трогать его на живом графе лишний раз не стоит. Теперь
-                    // только флаг — топология графа не меняется вообще.
-                    if (_visualizer != null) _visualizer.IsPaused = true;
+                    Diag.Log("EnteredBackground: освобождаем VisualizerService целиком (не просто пауза)");
+                    // ВАЖНО: раньше здесь была просто IsPaused=true (экономия CPU,
+                    // но граф оставался жить в памяти). Теперь VisualizerService —
+                    // СВОЙ ОТДЕЛЬНЫЙ независимый AudioGraph (звук идёт через
+                    // MediaPlayer, никак не связан), и оставлять его полностью
+                    // размещённым в памяти на фоне — лишняя нагрузка на память
+                    // именно в тот момент, когда система урезает лимит памяти для
+                    // фоновых приложений сильнее всего. Судя по логам (WarmUp
+                    // заново без единого штатного события завершения — то есть
+                    // ОС просто убивает процесс) — вероятная причина именно в
+                    // превышении этого лимита. Полностью освобождаем в фоне —
+                    // звук (MediaPlayer) это никак не затрагивает, он отдельно.
+                    _visualizer?.Dispose();
+                    _visualizer = null;
                 };
-                App.LeavingBackground += (s, a) =>
+                App.LeavingBackground += async (s, a) =>
                 {
-                    if (_visualizer != null) _visualizer.IsPaused = false;
+                    Diag.Log("LeavingBackground: подключаем VisualizerService заново");
+                    if (_trackLoaded && _visualizer == null
+                        && App.CurrentPlaylistIndex >= 0 && App.CurrentPlaylistIndex < App.CurrentPlaylist.Count)
+                    {
+                        try
+                        {
+                            _visualizer = new VisualizerService();
+                            await _visualizer.InitializeAsync(App.CurrentPlaylist[App.CurrentPlaylistIndex].File);
+                            _visualizer.LevelsChanged += OnLevelsChanged;
+                            if (_playback.IsPlaying)
+                            {
+                                _visualizer.Start(_playback.Position); // ресинхронизация после возврата из фона
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Diag.Log("LeavingBackground: не удалось переподключить визуализатор: " + ex);
+                            _visualizer?.Dispose();
+                            _visualizer = null;
+                        }
+                    }
                 };
 
                 // Позиция и длительность — раз в 500мс опрашиваем
