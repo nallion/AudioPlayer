@@ -42,7 +42,7 @@ namespace AudioVisualizerPlayer
         public static event EventHandler EnteredBackground;
         public static event EventHandler LeavingBackground;
 
-        // Эквалайзер: 5 полос (см. PlaybackService.EqualizerFrequencies),
+        // Эквалайзер: 4 полосы (см. PlaybackService.EqualizerFrequencies),
         // значения в дБ, диапазон обычно -15..+15. Общий массив — доступен и
         // PlaybackService (пересоздаёт полосы с этими значениями при каждой
         // загрузке трека, граф ведь пересоздаётся заново), и EqualizerPage

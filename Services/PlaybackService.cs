@@ -46,16 +46,17 @@ namespace AudioVisualizerPlayer.Services
         private EqualizerBand[] _equalizerBands;
 
         /// <summary>
-        /// Частоты 5 полос классического графического эквалайзера. Bandwidth
-        /// подобран примерно пропорционально центральной частоте (грубо
-        /// постоянная добротность) — не критично для функциональности,
-        /// просто влияет на "ширину" влияния каждого слайдера.
+        /// Частоты 4 полос классического графического эквалайзера — именно
+        /// столько EqualizerEffectDefinition даёт по умолчанию (проверено по
+        /// логам: Bands.Count == 4, как и в официальном примере Microsoft).
+        /// Пятая полоса была лишней — ничем не управляла, слайдер для неё
+        /// просто ничего не делал.
         /// </summary>
-        public static readonly double[] EqualizerFrequencies = { 60, 250, 1000, 4000, 12000 };
+        public static readonly double[] EqualizerFrequencies = { 60, 250, 1000, 4000 };
         // Bandwidth в этом API — не герцы, а октавы (см. официальный пример
         // Microsoft: значения вроде 1.5/2.0). 1.0 октава — стандартный,
-        // безопасный выбор для графического эквалайзера на 5 полос.
-        private static readonly double[] EqualizerBandwidths = { 1.0, 1.0, 1.0, 1.0, 1.2 };
+        // безопасный выбор для графического эквалайзера.
+        private static readonly double[] EqualizerBandwidths = { 1.0, 1.0, 1.0, 1.2 };
 
         public SystemMediaTransportControls Smtc { get; }
 
@@ -125,6 +126,13 @@ namespace AudioVisualizerPlayer.Services
         /// подписывается MainPage для автоперехода к следующему треку.</summary>
         public event EventHandler TrackEnded;
 
+        /// <summary>
+        /// Бесконечное зацикленное воспроизведение ТЕКУЩЕГО трека — если
+        /// true, по окончании файла он просто перематывается в начало и
+        /// играет заново вместо перехода к следующему треку в плейлисте.
+        /// </summary>
+        public bool LoopCurrentTrack { get; set; }
+
         public PlaybackService()
         {
             Smtc = SystemMediaTransportControls.GetForCurrentView();
@@ -173,6 +181,15 @@ namespace AudioVisualizerPlayer.Services
 
             _fileInput.FileCompleted += (s, a) =>
             {
+                if (LoopCurrentTrack)
+                {
+                    // Просто перематываем в начало и продолжаем — трек не
+                    // "закончился" с точки зрения плеера, TrackEnded не
+                    // стреляет, автопереход к следующему треку не запускается.
+                    _fileInput.Seek(TimeSpan.Zero);
+                    return;
+                }
+
                 IsPlaying = false;
                 PlaybackStateChanged?.Invoke(this, false);
                 TrackEnded?.Invoke(this, EventArgs.Empty);

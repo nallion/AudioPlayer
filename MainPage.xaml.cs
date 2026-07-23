@@ -779,6 +779,16 @@ namespace AudioVisualizerPlayer
             await PlayNextTrackAsync();
         }
 
+        private void LoopButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        {
+            if (_playback == null) return;
+
+            _playback.LoopCurrentTrack = !_playback.LoopCurrentTrack;
+            LoopIcon.Foreground = _playback.LoopCurrentTrack
+                ? (Windows.UI.Xaml.Media.Brush)Application.Current.Resources["AppAccentBrush"]
+                : new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.White);
+        }
+
         private void OnPlaybackStateChanged(object sender, bool isPlaying)
         {
             // Визуализатор отдельно не запускается/останавливается — он

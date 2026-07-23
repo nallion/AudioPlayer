@@ -125,6 +125,12 @@
                     <Button x:Name="NextButton" Click="NextButton_Click" Background="Transparent" BorderThickness="0" Margin="34,0,0,0">
                         <SymbolIcon Symbol="Next" Foreground="White"/>
                     </Button>
+                    <!-- Зацикливание текущего трека — по окончании файла он
+                         перематывается в начало вместо перехода к следующему.
+                         Цвет иконки меняется на акцентный, когда включено. -->
+                    <Button x:Name="LoopButton" Click="LoopButton_Click" Background="Transparent" BorderThickness="0" Margin="24,0,0,0">
+                        <SymbolIcon x:Name="LoopIcon" Symbol="RepeatOne" Foreground="White"/>
+                    </Button>
                 </StackPanel>
             </Grid>
         </SplitView.Content>
