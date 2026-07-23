@@ -52,30 +52,20 @@ namespace AudioVisualizerPlayer
             }
         }
 
-        private async void MainPage_Loaded(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        private void MainPage_Loaded(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
             try
             {
-                try
-                {
-                    _playback = App.Playback;
-                    _playback.PlaybackStateChanged += OnPlaybackStateChanged;
-                    _playback.NextRequested += (s, a) => { /* переключение трека в плейлисте */ };
-                    _playback.PreviousRequested += (s, a) => { /* переключение трека в плейлисте */ };
-                }
-                catch (Exception ex)
-                {
-                    throw new Exception("ШАГ 0 (подписка на события PlaybackService): " + ex.Message, ex);
-                }
-
-                // Для демонстрации — выбор файла через FilePicker.
-                // В реальном приложении здесь будет плейлист/библиотека.
-                await LoadDemoTrackAsync();
+                _playback = App.Playback;
+                _playback.PlaybackStateChanged += OnPlaybackStateChanged;
+                _playback.NextRequested += (s, a) => { /* переключение трека в плейлисте */ };
+                _playback.PreviousRequested += (s, a) => { /* переключение трека в плейлисте */ };
             }
             catch (Exception ex)
             {
-                var dialog = new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка при запуске");
-                await dialog.ShowAsync();
+                var dialog = new Windows.UI.Popups.MessageDialog(
+                    "ШАГ 0 (подписка на события PlaybackService): " + ex, "Ошибка при запуске");
+                _ = dialog.ShowAsync();
             }
         }
 
@@ -149,8 +139,32 @@ namespace AudioVisualizerPlayer
             });
         }
 
-        private void PlayPauseButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        private bool _trackLoaded = false;
+
+        private async void PlayPauseButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
+            if (!_trackLoaded)
+            {
+                // Пикер вызывается здесь, а не в MainPage_Loaded, специально:
+                // на момент клика окно приложения гарантированно активно
+                // (Window.Current.Activate() уже отработал) — раньше пикер падал
+                // с UnauthorizedAccessException (0x80070005) именно из-за гонки:
+                // Page.Loaded срабатывает синхронно внутри Frame.Navigate(),
+                // то есть ДО Window.Current.Activate() в App.OnLaunched, и брокер
+                // пикера отказывал, потому что окно ещё не в foreground.
+                try
+                {
+                    await LoadDemoTrackAsync();
+                    _trackLoaded = true;
+                }
+                catch (Exception ex)
+                {
+                    var dialog = new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка при выборе файла");
+                    await dialog.ShowAsync();
+                }
+                return;
+            }
+
             _playback.TogglePlayPause();
         }
 
