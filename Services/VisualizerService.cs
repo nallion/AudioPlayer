@@ -66,19 +66,28 @@ namespace AudioVisualizerPlayer.Services
             WriteDiagnostics("InitializeAsync завершён успешно, QuantumStarted подписан.");
         }
 
-        public void Start()
+        public void Start(TimeSpan? syncPosition = null)
         {
-            // Пишем синхронно, прямо здесь — раньше запись была через
-            // System.Threading.Timer (колбэк на потоке из thread pool), и даже
-            // диагностический файл не появился ни разу. Возможно, запись файлов
-            // именно с такого потока в этом приложении ведёт себя иначе, чем
-            // с UI-потока (где crash.log записывался нормально). Start() вызывается
-            // из LoadDemoTrackAsync на UI-потоке — пишем прямо тут, синхронно,
-            // без промежуточных потоков.
-            WriteDiagnostics("Start() вызван. _graph == null: " + (_graph == null));
+            WriteDiagnostics("Start() вызван. _graph == null: " + (_graph == null) +
+                (syncPosition.HasValue ? $", syncPosition={syncPosition.Value}" : ""));
 
             try
             {
+                // Пересинхронизация: без неё Stop()/Start() продолжают чтение файла
+                // с того места, где графа остановили, а не с той позиции, где
+                // реально сейчас находится MediaPlayer — между "MediaPlayer встал
+                // на паузу" и "мы вызвали Stop() у анализирующего графа" проходит
+                // небольшая асинхронная задержка (событие PlaybackStateChanged
+                // доходит не мгновенно), и на каждом цикле пауза/продолжить это
+                // расхождение накапливается. Seek() на каждый resume сбрасывает
+                // накопленную ошибку вместо того, чтобы дать ей расти дальше.
+                if (syncPosition.HasValue && _fileInput != null)
+                {
+                    _fileInput.Seek(syncPosition.Value);
+                    _sampleBuffer.Clear();
+                    WriteDiagnostics("_fileInput.Seek() выполнен: " + syncPosition.Value);
+                }
+
                 _graph?.Start();
                 WriteDiagnostics("_graph.Start() выполнен без исключений.");
             }

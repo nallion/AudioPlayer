@@ -285,7 +285,7 @@ namespace AudioVisualizerPlayer
             // Не через Dispatcher — Start()/Stop() у AudioGraph не трогают UI.
             if (state == MediaPlaybackState.Playing)
             {
-                _visualizer?.Start();
+                _visualizer?.Start(_playback.Player.PlaybackSession.Position);
             }
             else
             {
