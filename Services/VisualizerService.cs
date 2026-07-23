@@ -129,6 +129,7 @@ namespace AudioVisualizerPlayer.Services
         private bool _skipThisQuantum = false;
 
         private int _quantumCallCount = 0;
+        private int _fftCallCount = 0;
 
         private void OnQuantumStarted(AudioGraph sender, object args)
         {
@@ -170,6 +171,15 @@ namespace AudioVisualizerPlayer.Services
                         Complex[] spectrum = _fft.Transform(_chunkBuffer);
                         float[] bars = FFT.ToBars(spectrum, BarCount);
                         NormalizeWithAgc(bars);
+
+                        _fftCallCount++;
+                        if (_fftCallCount % 50 == 0)
+                        {
+                            float maxBar = 0f;
+                            for (int i = 0; i < bars.Length; i++) if (bars[i] > maxBar) maxBar = bars[i];
+                            Diag.Log($"Task.Run heartbeat: расчётов={_fftCallCount}, agcMax={_agcMax}, maxBar={maxBar}, подписчиков LevelsChanged: {LevelsChanged?.GetInvocationList().Length ?? 0}");
+                        }
+
                         LevelsChanged?.Invoke(this, bars);
                     }
                     catch (Exception exInner)

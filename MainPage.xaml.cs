@@ -585,8 +585,16 @@ namespace AudioVisualizerPlayer
             }
         }
 
+        private int _onLevelsChangedCallCount = 0;
+
         private async void OnLevelsChanged(object sender, float[] bars)
         {
+            _onLevelsChangedCallCount++;
+            if (_onLevelsChangedCallCount % 50 == 0)
+            {
+                Diag.Log($"MainPage.OnLevelsChanged: heartbeat, вызовов={_onLevelsChangedCallCount}");
+            }
+
             // LevelsChanged прилетает из фонового потока — трогать элементы UI
             // (Rectangle.Height) можно только из UI-потока.
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
