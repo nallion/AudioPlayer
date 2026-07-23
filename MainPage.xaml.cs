@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.UI;
@@ -14,6 +17,8 @@ namespace AudioVisualizerPlayer
 {
     public sealed partial class MainPage : Page
     {
+        private static readonly string[] SupportedExtensions = { ".mp3", ".wav", ".m4a" };
+
         private PlaybackService _playback;
         private VisualizerService _visualizer;
 
@@ -22,6 +27,12 @@ namespace AudioVisualizerPlayer
 
         private bool _trackLoaded = false;
         private DispatcherTimer _positionTimer;
+
+        // Плейлист: либо один файл (выбор через "Выбрать файл"), либо все
+        // поддерживаемые аудиофайлы из папки (через "Выбрать папку").
+        // Previous/Next ходят по этому списку с закольцовкой на краях.
+        private List<StorageFile> _playlist = new List<StorageFile>();
+        private int _currentIndex = -1;
 
         // true, когда мы САМИ меняем ProgressSlider.Value из таймера позиции —
         // чтобы ProgressSlider_ValueChanged не принял это за перемотку от пользователя.
@@ -93,14 +104,15 @@ namespace AudioVisualizerPlayer
             {
                 _playback = App.Playback;
                 _playback.PlaybackStateChanged += OnPlaybackStateChanged;
-                _playback.NextRequested += (s, a) => { /* переключение трека в плейлисте */ };
-                _playback.PreviousRequested += (s, a) => { /* переключение трека в плейлисте */ };
 
-                // Позиция и длительность теперь без MediaPlayer — раз в 500мс
-                // опрашиваем AudioFileInputNode.Position через PlaybackService.
-                // Раньше это были push-события MediaPlaybackSession.PositionChanged/
-                // MediaOpened, но их источника (MediaPlayer) больше нет: единый
-                // AudioGraph отдаёт позицию через простое свойство, без событий.
+                // Аппаратные/лок-скрин кнопки Next/Previous (через SMTC) идут
+                // через те же самые методы, что и кнопки в UI — единая логика
+                // переключения треков, а не два независимых пути.
+                _playback.NextRequested += async (s, a) => await PlayNextTrackAsync();
+                _playback.PreviousRequested += async (s, a) => await PlayPreviousTrackAsync();
+
+                // Позиция и длительность — раз в 500мс опрашиваем
+                // AudioFileInputNode.Position через PlaybackService.
                 _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
                 _positionTimer.Tick += PositionTimer_Tick;
                 _positionTimer.Start();
@@ -127,25 +139,24 @@ namespace AudioVisualizerPlayer
         private static string FormatTime(TimeSpan t) =>
             $"{(int)t.TotalMinutes}:{t.Seconds:D2}";
 
-        private async System.Threading.Tasks.Task LoadDemoTrackAsync()
+        // --- Боковое меню ---
+
+        private void MenuButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
-            // Диагностика: .NET Native даёт стек-трейс из голых адресов
-            // (SharedLibrary!<BaseAddress>+0x...) без номеров строк — по нему
-            // нельзя понять, какая именно строка бросает исключение. Помечаем
-            // каждый потенциально опасный шаг явно, чтобы это было видно
-            // прямо в тексте диалога.
-            FileOpenPicker picker;
-            try
-            {
-                picker = new FileOpenPicker();
-                picker.FileTypeFilter.Add(".mp3");
-                picker.FileTypeFilter.Add(".wav");
-                picker.FileTypeFilter.Add(".m4a");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception("ШАГ 1 (создание FileOpenPicker): " + ex.Message, ex);
-            }
+            RootSplitView.IsPaneOpen = !RootSplitView.IsPaneOpen;
+        }
+
+        private async void PickFileMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        {
+            RootSplitView.IsPaneOpen = false;
+
+            var picker = new FileOpenPicker();
+            // Без SuggestedStartLocation: указание конкретной защищённой
+            // библиотеки (MusicLibrary) раньше давало UnauthorizedAccessException
+            // (0x80070005) на этом устройстве — обычный режим пикера работает
+            // без специальных прав вообще.
+            foreach (var ext in SupportedExtensions)
+                picker.FileTypeFilter.Add(ext);
 
             StorageFile file;
             try
@@ -154,11 +165,109 @@ namespace AudioVisualizerPlayer
             }
             catch (Exception ex)
             {
-                throw new Exception("ШАГ 2 (PickSingleFileAsync): " + ex.Message, ex);
+                await new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка выбора файла").ShowAsync();
+                return;
             }
 
             if (file == null) return;
 
+            _playlist = new List<StorageFile> { file };
+            _currentIndex = 0;
+
+            await LoadAndPlayCurrentAsync();
+        }
+
+        private async void PickFolderMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        {
+            RootSplitView.IsPaneOpen = false;
+
+            var picker = new FolderPicker();
+            // FolderPicker требует хотя бы один FileTypeFilter, даже для выбора
+            // самой папки, а не конкретного файла внутри неё — особенность API.
+            picker.FileTypeFilter.Add("*");
+
+            StorageFolder folder;
+            try
+            {
+                folder = await picker.PickSingleFolderAsync();
+            }
+            catch (Exception ex)
+            {
+                await new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка выбора папки").ShowAsync();
+                return;
+            }
+
+            if (folder == null) return;
+
+            IReadOnlyList<StorageFile> files;
+            try
+            {
+                files = await folder.GetFilesAsync();
+            }
+            catch (Exception ex)
+            {
+                await new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка чтения папки").ShowAsync();
+                return;
+            }
+
+            var tracks = files
+                .Where(f => SupportedExtensions.Contains(System.IO.Path.GetExtension(f.Name).ToLowerInvariant()))
+                .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (tracks.Count == 0)
+            {
+                await new Windows.UI.Popups.MessageDialog(
+                    "В выбранной папке не найдено поддерживаемых аудиофайлов (.mp3, .wav, .m4a).",
+                    "Пусто").ShowAsync();
+                return;
+            }
+
+            _playlist = tracks;
+            _currentIndex = 0;
+
+            await LoadAndPlayCurrentAsync();
+        }
+
+        // --- Переключение треков ---
+
+        private async Task PlayNextTrackAsync()
+        {
+            if (_playlist.Count == 0) return;
+            _currentIndex = (_currentIndex + 1) % _playlist.Count; // закольцовка
+            await LoadAndPlayCurrentAsync();
+        }
+
+        private async Task PlayPreviousTrackAsync()
+        {
+            if (_playlist.Count == 0) return;
+            _currentIndex = (_currentIndex - 1 + _playlist.Count) % _playlist.Count; // закольцовка
+            await LoadAndPlayCurrentAsync();
+        }
+
+        private async Task LoadAndPlayCurrentAsync()
+        {
+            if (_currentIndex < 0 || _currentIndex >= _playlist.Count) return;
+
+            try
+            {
+                await LoadTrackAsync(_playlist[_currentIndex]);
+                _trackLoaded = true;
+                _playback.Play();
+            }
+            catch (Exception ex)
+            {
+                await new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка загрузки трека").ShowAsync();
+            }
+        }
+
+        /// <summary>
+        /// Общая логика загрузки одного файла: чтение ID3-тегов, LoadAsync
+        /// в PlaybackService, подключение визуализатора, обновление UI.
+        /// Используется и при ручном выборе файла/папки, и при Next/Prev.
+        /// </summary>
+        private async Task LoadTrackAsync(StorageFile file)
+        {
             string title, artist;
             try
             {
@@ -171,7 +280,7 @@ namespace AudioVisualizerPlayer
             }
             catch (Exception ex)
             {
-                throw new Exception("ШАГ 2.5 (GetMusicPropertiesAsync): " + ex.Message, ex);
+                throw new Exception("Чтение ID3-тегов (" + file.Name + "): " + ex.Message, ex);
             }
 
             try
@@ -182,15 +291,13 @@ namespace AudioVisualizerPlayer
                 TrackArtistText.Text = artist;
 
                 // Duration доступна сразу после LoadAsync — AudioFileInputNode
-                // читает метаданные файла синхронно при создании узла, никакого
-                // отдельного асинхронного события (в отличие от MediaOpened)
-                // дожидаться не нужно.
+                // читает метаданные файла синхронно при создании узла.
                 ProgressSlider.Maximum = _playback.Duration.TotalSeconds;
                 DurationText.Text = FormatTime(_playback.Duration);
             }
             catch (Exception ex)
             {
-                throw new Exception("ШАГ 3 (_playback.LoadAsync): " + ex.Message, ex);
+                throw new Exception("_playback.LoadAsync (" + file.Name + "): " + ex.Message, ex);
             }
 
             try
@@ -199,26 +306,25 @@ namespace AudioVisualizerPlayer
                 _visualizer = new VisualizerService();
                 _visualizer.AttachTo(_playback);
                 _visualizer.LevelsChanged += OnLevelsChanged;
-                // Отдельного Start()/Stop() у визуализатора больше нет — он
-                // просто подключён вторым выходом к общему AudioGraph, и
-                // получает кадры ровно тогда, когда играет реальный звук
-                // (единственный источник Start/Stop — _playback.Play()/Pause()).
+                // Отдельного Start()/Stop() у визуализатора нет — он просто
+                // подключён вторым выходом к общему AudioGraph и получает кадры
+                // ровно тогда, когда играет реальный звук (единственный
+                // источник Start/Stop — _playback.Play()/Pause()).
             }
             catch (Exception ex)
             {
-                throw new Exception("ШАГ 4 (VisualizerService.AttachTo): " + ex.Message, ex);
+                throw new Exception("VisualizerService.AttachTo (" + file.Name + "): " + ex.Message, ex);
             }
         }
 
         private async void OnLevelsChanged(object sender, float[] bars)
         {
-            // LevelsChanged прилетает из фонового потока AudioGraph — трогать
-            // элементы UI (Rectangle.Height) можно только из UI-потока.
+            // LevelsChanged прилетает из фонового потока — трогать элементы UI
+            // (Rectangle.Height) можно только из UI-потока.
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
                 // Реальная высота панели вместо захардкоженного числа — так
-                // визуализатор всегда использует всё доступное место, а не
-                // фиксированную полоску независимо от размера экрана/раскладки.
+                // визуализатор всегда использует всё доступное место.
                 double panelHeight = VisualizerPanel.ActualHeight;
                 if (panelHeight <= 0) panelHeight = 200; // пока layout не посчитан при самом первом кадре
 
@@ -232,8 +338,7 @@ namespace AudioVisualizerPlayer
 
         // ValueChanged — единственное событие Slider, которое гарантированно
         // срабатывает при ЛЮБОМ изменении значения (перетаскивание пальцем,
-        // тап по треку, стрелки клавиатуры), в отличие от PointerPressed/Released,
-        // которые висят на внешнем элементе, а не на внутреннем Thumb.
+        // тап по треку, стрелки клавиатуры), в отличие от PointerPressed/Released.
         private void ProgressSlider_ValueChanged(object sender, Windows.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
         {
             if (_isProgrammaticSliderUpdate) return; // это мы сами обновили из таймера, не пользователь
@@ -242,51 +347,34 @@ namespace AudioVisualizerPlayer
             _playback.Position = TimeSpan.FromSeconds(e.NewValue);
         }
 
-        private async void PlayPauseButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        private void PlayPauseButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
             if (!_trackLoaded)
             {
-                // Пикер вызывается здесь, а не в MainPage_Loaded, специально:
-                // на момент клика окно приложения гарантированно активно
-                // (Window.Current.Activate() уже отработал) — раньше пикер падал
-                // с UnauthorizedAccessException (0x80070005) именно из-за гонки:
-                // Page.Loaded срабатывает синхронно внутри Frame.Navigate(),
-                // то есть ДО Window.Current.Activate() в App.OnLaunched, и брокер
-                // пикера отказывал, потому что окно ещё не в foreground.
-                try
-                {
-                    await LoadDemoTrackAsync();
-                    _trackLoaded = true;
-                    _playback.Play(); // автоплей сразу после выбора файла
-                }
-                catch (Exception ex)
-                {
-                    var dialog = new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка при выборе файла");
-                    await dialog.ShowAsync();
-                }
+                // Ничего не выбрано — подскажем открыть меню, а не просто
+                // молча ничего не делать.
+                RootSplitView.IsPaneOpen = true;
                 return;
             }
 
             _playback.TogglePlayPause();
         }
 
-        private void PreviousButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        private async void PreviousButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
-            _playback.RaisePreviousRequested();
+            await PlayPreviousTrackAsync();
         }
 
-        private void NextButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        private async void NextButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
-            _playback.RaiseNextRequested();
+            await PlayNextTrackAsync();
         }
 
         private void OnPlaybackStateChanged(object sender, bool isPlaying)
         {
-            // Визуализатор больше не нужно отдельно останавливать/запускать —
-            // он подключён к общему AudioGraph, который уже сам стартует/стопится
-            // внутри _playback.Play()/Pause(). QuantumStarted естественным
-            // образом перестаёт приходить, когда граф на паузе, и это разом
-            // касается и звука, и анализа — без риска рассинхронизации.
+            // Визуализатор отдельно не запускается/останавливается — он
+            // подключён к общему AudioGraph, который уже сам стартует/стопится
+            // внутри _playback.Play()/Pause().
             var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
                 PlayPauseIcon.Symbol = isPlaying ? Symbol.Pause : Symbol.Play;
