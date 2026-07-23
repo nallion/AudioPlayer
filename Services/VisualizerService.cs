@@ -51,8 +51,16 @@ namespace AudioVisualizerPlayer.Services
 
             try
             {
-                _frameOutput = _graph.CreateFrameOutputNode();
-                Diag.Log("  CreateFrameOutputNode — успех");
+                // Явно запрашиваем тот же формат, что согласовал весь граф
+                // (_graph.EncodingProperties), а не дефолтный формат
+                // CreateFrameOutputNode() без параметров. Судя по логам,
+                // граф при подключённых наушниках согласовывает формат под
+                // конкретное устройство, а параметрless FrameOutputNode
+                // получает какой-то другой формат по умолчанию — несовпадение
+                // и давало XAUDIO2_E_INVALID_CALL именно на этом соединении
+                // (само создание узла проходило, падало только подключение).
+                _frameOutput = _graph.CreateFrameOutputNode(_graph.EncodingProperties);
+                Diag.Log("  CreateFrameOutputNode(с форматом графа) — успех");
             }
             catch (Exception ex)
             {
