@@ -32,6 +32,13 @@ namespace AudioVisualizerPlayer.Services
         private const int FftSize = 4096; // степень двойки
         private const int BarCount = 40;   // столько же баров, сколько на макете
 
+        // Переиспользуемый экземпляр FFT — все внутренние буферы (сам массив
+        // расчёта, таблица bit-reversal, окно Ханна) выделяются один раз
+        // здесь, а не заново на каждый вызов Transform(). См. Helpers/FFT.cs —
+        // именно это убирает основной источник мелких аллокаций/GC-пауз,
+        // которые могли провоцировать щелчки в звуке.
+        private readonly FFT _fft = new FFT(FftSize);
+
         public event EventHandler<float[]> LevelsChanged;
 
         private static int _attachToSuccessCount = 0;
@@ -144,6 +151,14 @@ namespace AudioVisualizerPlayer.Services
         // копить фоновую работу).
         private volatile bool _isProcessingFft = false;
 
+        // Дополнительно считаем FFT не на КАЖДОМ кванте, а через один —
+        // глаз всё равно не различит разницу между обновлением каждые ~93мс
+        // и каждые ~186мс, а частота аллокаций (Task-объект + всё, что
+        // происходит внутри) и нагрузка на планировщик пула потоков падают
+        // вдвое. Ещё один вклад в снижение GC-давления, помимо
+        // безаллокационного FFT самого по себе.
+        private bool _skipThisQuantum = false;
+
         private void OnQuantumStarted(AudioGraph sender, object args)
         {
             try
@@ -172,6 +187,9 @@ namespace AudioVisualizerPlayer.Services
                 if (_sampleBuffer.Count < FftSize) return;
                 if (_isProcessingFft) return; // предыдущий расчёт ещё не закончился
 
+                _skipThisQuantum = !_skipThisQuantum;
+                if (_skipThisQuantum) return; // пропускаем через раз
+
                 // Берём последние FftSize сэмплов из накопленного буфера —
                 // копия чтобы фоновый поток не читал буфер, который меняется
                 // на аудио-потоке в следующем кванте.
@@ -183,7 +201,7 @@ namespace AudioVisualizerPlayer.Services
                 {
                     try
                     {
-                        Complex[] spectrum = FFT.Transform(chunk);
+                        Complex[] spectrum = _fft.Transform(chunk);
                         float[] bars = FFT.ToBars(spectrum, BarCount);
                         NormalizeWithAgc(bars);
                         LevelsChanged?.Invoke(this, bars);
