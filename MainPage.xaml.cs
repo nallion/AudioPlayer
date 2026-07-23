@@ -303,6 +303,7 @@ namespace AudioVisualizerPlayer
         }
 
         private bool _populatingOutputDevices = false;
+        private const string SelectedOutputDeviceIdSettingKey = "SelectedOutputDeviceId";
 
         private async Task PopulateOutputDevicesAsync()
         {
@@ -329,7 +330,32 @@ namespace AudioVisualizerPlayer
                 }
 
                 OutputDeviceComboBox.ItemsSource = options;
-                OutputDeviceComboBox.SelectedIndex = 0; // "Авто" по умолчанию
+
+                // Восстанавливаем ранее сохранённый выбор — переживает
+                // перезапуск приложения (ApplicationData.LocalSettings).
+                int restoredIndex = 0; // по умолчанию — "Авто"
+                if (ApplicationData.Current.LocalSettings.Values.TryGetValue(SelectedOutputDeviceIdSettingKey, out object savedIdObj)
+                    && savedIdObj is string savedId && !string.IsNullOrEmpty(savedId))
+                {
+                    int foundIndex = options.FindIndex(o => o.Device != null && o.Device.Id == savedId);
+                    if (foundIndex >= 0)
+                    {
+                        restoredIndex = foundIndex;
+                    }
+                    else
+                    {
+                        Diag.Log($"Сохранённое устройство вывода (id={savedId}) сейчас не найдено в системе — используем Авто.");
+                    }
+                }
+
+                OutputDeviceComboBox.SelectedIndex = restoredIndex;
+                // Применяем восстановленный выбор к PlaybackService напрямую —
+                // SelectionChanged не сработает содержательно, пока
+                // _populatingOutputDevices == true (см. обработчик ниже).
+                if (_playback != null)
+                {
+                    _playback.SelectedRenderDevice = options[restoredIndex].Device;
+                }
             }
             finally
             {
@@ -347,6 +373,13 @@ namespace AudioVisualizerPlayer
 
             _playback.SelectedRenderDevice = selected.Device;
             Diag.Log($"Пользователь выбрал устройство вывода: {selected.Name}");
+
+            // Сохраняем выбор — переживёт перезапуск приложения. "Авто"
+            // (Device == null) сохраняем как отсутствие значения / пустую
+            // строку, чтобы при следующем запуске корректно восстановилось
+            // именно "Авто", а не последнее реальное устройство.
+            ApplicationData.Current.LocalSettings.Values[SelectedOutputDeviceIdSettingKey] =
+                selected.Device?.Id ?? string.Empty;
 
             // Применяем выбор сразу — если что-то уже загружено, перегружаем
             // текущий трек с новым устройством и продолжаем с той же позиции.
