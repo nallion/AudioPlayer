@@ -30,10 +30,11 @@ namespace AudioVisualizerPlayer.Services
     ///    Небольшой дрейф между звуком и визуализацией теоретически возможен
     ///    при частых паузах/перемотках — гасим его Seek-ресинхронизацией
     ///    (см. MainPage.OnPlaybackStateChanged и ProgressSlider_ValueChanged).
-    /// 2. EqualizerEffectDefinition — часть именно AudioGraph API, с
-    ///    MediaPlayer напрямую не работает. UI страницы эквалайзера остался,
-    ///    но эффект сейчас НЕ действует на реальный звук (см. SetEqualizerGain
-    ///    ниже — no-op).
+    /// 2. Эквалайзер убран полностью — EqualizerEffectDefinition часть именно
+    ///    AudioGraph API, с MediaPlayer напрямую не работает, а единственный
+    ///    официальный обходной путь (свой DSP-эффект как отдельный Windows
+    ///    Runtime Component + 5-10-секундная задержка отклика из-за
+    ///    буферизации в конвейере MediaPlayer) того не стоит.
     /// 3. Ручной выбор устройства вывода убран полностью (не просто
     ///    отключён) — PrimaryRenderDevice тоже часть AudioGraphSettings,
     ///    у MediaPlayer нет прямого аналога.
@@ -41,14 +42,6 @@ namespace AudioVisualizerPlayer.Services
     public class PlaybackService
     {
         private MediaPlayer _player;
-
-        /// <summary>
-        /// Частоты полос для UI страницы эквалайзера (подписи слайдеров и
-        /// размер App.EqualizerGainsDb) — сам эффект сейчас НЕ действует на
-        /// звук (см. SetEqualizerGain выше), но массив нужен, чтобы страница
-        /// эквалайзера и хранилище настроек вообще могли построиться.
-        /// </summary>
-        public static readonly double[] EqualizerFrequencies = { 60, 250, 1000, 4000 };
 
         public SystemMediaTransportControls Smtc => _player?.SystemMediaTransportControls;
 
@@ -89,17 +82,6 @@ namespace AudioVisualizerPlayer.Services
         }
 
         public TimeSpan Duration => _player?.PlaybackSession?.NaturalDuration ?? TimeSpan.Zero;
-
-        /// <summary>
-        /// НЕ ДЕЙСТВУЕТ на реальный звук — EqualizerEffectDefinition это часть
-        /// AudioGraph API, с MediaPlayer напрямую не работает. Оставлен как
-        /// no-op, чтобы не переписывать EqualizerPage — но эффекта не будет,
-        /// пока для эквалайзера не найдётся отдельное решение.
-        /// </summary>
-        public void SetEqualizerGain(int bandIndex, double gainDb)
-        {
-            // Намеренно пусто — см. комментарий класса.
-        }
 
         public PlaybackService()
         {

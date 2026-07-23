@@ -25,14 +25,6 @@
                         Background="Transparent" Foreground="White" BorderThickness="0"
                         FontSize="16" Padding="20,14" Visibility="Collapsed"/>
 
-                <!-- Настройки полос громкости не требуют загруженного трека —
-                     значения применяются к следующей загрузке/пересборке
-                     графа и сохраняются между запусками (App.EqualizerGainsDb). -->
-                <Button Content="Эквалайзер" Click="EqualizerMenuItem_Click"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                        Background="Transparent" Foreground="White" BorderThickness="0"
-                        FontSize="16" Padding="20,14"/>
-
             </StackPanel>
         </SplitView.Pane>
 

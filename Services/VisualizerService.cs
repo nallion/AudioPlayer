@@ -50,16 +50,22 @@ namespace AudioVisualizerPlayer.Services
         /// </summary>
         public async System.Threading.Tasks.Task InitializeAsync(StorageFile file)
         {
+            Diag.Log($"VisualizerService.InitializeAsync начат для {file.Name}");
             Dispose(); // на случай повторного использования экземпляра
+            Diag.Log("VisualizerService.InitializeAsync: Dispose() старого — готово");
 
             var settings = new AudioGraphSettings(AudioRenderCategory.Media);
+            Diag.Log("VisualizerService.InitializeAsync: перед AudioGraph.CreateAsync");
             var graphResult = await AudioGraph.CreateAsync(settings);
+            Diag.Log($"VisualizerService.InitializeAsync: AudioGraph.CreateAsync status={graphResult.Status}");
             if (graphResult.Status != AudioGraphCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось создать AudioGraph визуализатора: " + graphResult.Status);
 
             _graph = graphResult.Graph;
 
+            Diag.Log("VisualizerService.InitializeAsync: перед CreateFileInputNodeAsync");
             var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
+            Diag.Log($"VisualizerService.InitializeAsync: CreateFileInputNodeAsync status={fileInputResult.Status}");
             if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось открыть файл для анализа: " + fileInputResult.Status);
 
@@ -68,6 +74,7 @@ namespace AudioVisualizerPlayer.Services
             _fileInput.AddOutgoingConnection(_frameOutput); // единственное соединение — этот граф ни во что больше не пишет
 
             _graph.QuantumStarted += OnQuantumStarted;
+            Diag.Log("VisualizerService.InitializeAsync: завершён успешно");
         }
 
         /// <summary>
@@ -211,16 +218,22 @@ namespace AudioVisualizerPlayer.Services
 
         public void Dispose()
         {
+            Diag.Log($"VisualizerService.Dispose: начало, _graph == null: {_graph == null}");
             try
             {
                 if (_graph != null)
                 {
                     _graph.QuantumStarted -= OnQuantumStarted;
                 }
+                Diag.Log("VisualizerService.Dispose: после отписки QuantumStarted");
                 _frameOutput?.Dispose();
+                Diag.Log("VisualizerService.Dispose: после _frameOutput.Dispose()");
                 _fileInput?.Dispose();
+                Diag.Log("VisualizerService.Dispose: после _fileInput.Dispose()");
                 _graph?.Stop();
+                Diag.Log("VisualizerService.Dispose: после _graph.Stop()");
                 _graph?.Dispose();
+                Diag.Log("VisualizerService.Dispose: после _graph.Dispose() — готово");
             }
             catch (ObjectDisposedException)
             {

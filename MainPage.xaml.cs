@@ -319,6 +319,7 @@ namespace AudioVisualizerPlayer
 
         private async void PlaylistMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
+            Diag.Log("PlaylistMenuItem_Click: начало");
             RootSplitView.IsPaneOpen = false;
 
             // Кандидат-фикс на проверку: даём анимации закрытия SplitView
@@ -327,21 +328,12 @@ namespace AudioVisualizerPlayer
             // невидимый light-dismiss слой Overlay-режима теоретически может
             // остаться "зависшим" в визуальном дереве и перехватывать
             // дальнейший ввод даже после возврата на страницу.
+            Diag.Log("PlaylistMenuItem_Click: перед Task.Delay(250)");
             await Task.Delay(250);
+            Diag.Log("PlaylistMenuItem_Click: после Task.Delay(250), перед Frame.Navigate");
 
             Frame.Navigate(typeof(PlaylistPage));
-        }
-
-        private async void EqualizerMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
-        {
-            RootSplitView.IsPaneOpen = false;
-
-            // Та же задержка перед навигацией, что и для PlaylistMenuItem —
-            // без неё анимация закрытия SplitView может не успеть доиграть,
-            // и это ловит ввод на возврате (см. историю бага с зависанием).
-            await Task.Delay(250);
-
-            Frame.Navigate(typeof(EqualizerPage));
+            Diag.Log("PlaylistMenuItem_Click: после Frame.Navigate");
         }
 
         private void ShowPlaylistMenuItemIfNeeded()
@@ -526,11 +518,14 @@ namespace AudioVisualizerPlayer
         /// </summary>
         private async Task LoadTrackAsync(PlaylistItem item)
         {
+            Diag.Log($"LoadTrackAsync: начало, файл={item.File.Name}");
+
             // Старый VisualizerService нужно освободить до загрузки нового
             // трека — у него свой независимый AudioGraph, полностью отдельный
             // от PlaybackService, но всё равно лучше не плодить лишние графы.
             _visualizer?.Dispose();
             _visualizer = null;
+            Diag.Log("LoadTrackAsync: старый _visualizer освобождён");
 
             try
             {
@@ -552,7 +547,9 @@ namespace AudioVisualizerPlayer
                 };
                 _playback.MediaOpened += onMediaOpened;
 
+                Diag.Log("LoadTrackAsync: перед _playback.LoadAsync");
                 await _playback.LoadAsync(item.File, title: item.Title, artist: item.Artist);
+                Diag.Log("LoadTrackAsync: после _playback.LoadAsync");
 
                 TrackTitleText.Text = item.Title;
                 TrackTitleText2.Text = item.Title; // вторая копия для кольцевой бегущей строки
@@ -571,9 +568,11 @@ namespace AudioVisualizerPlayer
                 // запускаем здесь — Start() вызывается из OnPlaybackStateChanged,
                 // сразу после того как реально начнётся воспроизведение
                 // (см. LoadAndPlayCurrentAsync → _playback.Play() чуть ниже).
+                Diag.Log("LoadTrackAsync: перед new VisualizerService()/InitializeAsync");
                 _visualizer = new VisualizerService();
                 await _visualizer.InitializeAsync(item.File);
                 _visualizer.LevelsChanged += OnLevelsChanged;
+                Diag.Log("LoadTrackAsync: InitializeAsync — готово");
             }
             catch (Exception ex)
             {
@@ -669,12 +668,16 @@ namespace AudioVisualizerPlayer
 
         private async void PreviousButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
+            Diag.Log("PreviousButton_Click: нажата");
             await PlayPreviousTrackAsync();
+            Diag.Log("PreviousButton_Click: PlayPreviousTrackAsync завершён");
         }
 
         private async void NextButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
+            Diag.Log("NextButton_Click: нажата");
             await PlayNextTrackAsync();
+            Diag.Log("NextButton_Click: PlayNextTrackAsync завершён");
         }
 
         private void LoopButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
@@ -689,6 +692,7 @@ namespace AudioVisualizerPlayer
 
         private void OnPlaybackStateChanged(object sender, bool isPlaying)
         {
+            Diag.Log($"OnPlaybackStateChanged: isPlaying={isPlaying}, _visualizer == null: {_visualizer == null}");
             // Визуализатор теперь снова свой независимый AudioGraph (звук
             // идёт через MediaPlayer, полностью отдельно) — синхронизируем
             // вручную: запускаем/останавливаем вместе с реальным звуком,
@@ -702,6 +706,7 @@ namespace AudioVisualizerPlayer
             {
                 _visualizer?.Stop();
             }
+            Diag.Log("OnPlaybackStateChanged: Start/Stop визуализатора — готово");
 
             var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
@@ -711,6 +716,7 @@ namespace AudioVisualizerPlayer
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
+            Diag.Log("OnNavigatedFrom: начало");
             base.OnNavigatedFrom(e);
             _positionTimer?.Stop();
             _titleMarqueeStoryboard?.Stop();
@@ -721,6 +727,7 @@ namespace AudioVisualizerPlayer
             // визуализатор заново.
             _visualizer?.Dispose();
             _visualizer = null;
+            Diag.Log("OnNavigatedFrom: готово");
         }
     }
 }
