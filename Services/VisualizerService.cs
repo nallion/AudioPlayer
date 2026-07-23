@@ -89,6 +89,20 @@ namespace AudioVisualizerPlayer.Services
             _graph.Start();
         }
 
+        /// <summary>
+        /// Перемотка без обязательного запуска графа — вызывается при
+        /// перетаскивании ProgressSlider независимо от того, играет плеер
+        /// сейчас или на паузе. Если граф уже запущен (играет) — продолжает
+        /// играть с новой позиции. Если на паузе — просто выравнивает
+        /// позицию заранее, чтобы к моменту Play() всё уже было готово.
+        /// </summary>
+        public void Seek(TimeSpan position)
+        {
+            if (_fileInput == null) return;
+            _fileInput.Seek(position);
+            _sampleBuffer.Clear(); // старые накопленные сэмплы уже не актуальны после скачка позиции
+        }
+
         public void Stop()
         {
             _graph?.Stop();

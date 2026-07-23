@@ -33,15 +33,6 @@
                         Background="Transparent" Foreground="White" BorderThickness="0"
                         FontSize="16" Padding="20,14"/>
 
-                <!-- Ручной выбор устройства вывода — автоопределение наушников
-                     на этом устройстве ненадёжно, даём пользователю выбрать
-                     самому. "Авто" = системное значение по умолчанию (обычное
-                     автослежение); конкретное устройство = жёсткая привязка. -->
-                <TextBlock Text="Устройство вывода" Foreground="{StaticResource AppDimBrush}"
-                           FontSize="12" Margin="20,18,20,4"/>
-                <ComboBox x:Name="OutputDeviceComboBox" HorizontalAlignment="Stretch" Margin="16,0,16,14"
-                          SelectionChanged="OutputDeviceComboBox_SelectionChanged"
-                          DisplayMemberPath="Name"/>
             </StackPanel>
         </SplitView.Pane>
 

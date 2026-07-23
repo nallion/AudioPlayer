@@ -1,6 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using Windows.Devices.Enumeration;
 using Windows.Media;
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -24,18 +23,20 @@ namespace AudioVisualizerPlayer.Services
     /// на этом же телефоне. MediaPlayer — высокоуровневый, годами отточенный
     /// платформой API, здесь доказанно стабилен.
     ///
-    /// ЦЕНА ВОЗВРАТА (два известных, осознанных ограничения):
+    /// ЦЕНА ВОЗВРАТА (известные, осознанные ограничения):
     /// 1. Визуализатор больше не может читать тот же поток, что играет
     ///    звук, — MediaPlayer не даёт такого доступа. Он снова читает файл
     ///    ОТДЕЛЬНО, через свой независимый AudioGraph (см. VisualizerService).
     ///    Небольшой дрейф между звуком и визуализацией теоретически возможен
-    ///    при частых паузах — гасим его Seek-ресинхронизацией на каждый
-    ///    Play() (см. MainPage.OnPlaybackStateChanged → _visualizer.Start(position)).
-    /// 2. EqualizerEffectDefinition и PrimaryRenderDevice (ручной выбор
-    ///    устройства вывода) — часть именно AudioGraph API, с MediaPlayer
-    ///    напрямую не работают. UI страницы эквалайзера и выбора устройства
-    ///    остался, но сами эффекты сейчас НЕ действуют на реальный звук
-    ///    (см. SetEqualizerGain/SelectedRenderDevice ниже — оба no-op).
+    ///    при частых паузах/перемотках — гасим его Seek-ресинхронизацией
+    ///    (см. MainPage.OnPlaybackStateChanged и ProgressSlider_ValueChanged).
+    /// 2. EqualizerEffectDefinition — часть именно AudioGraph API, с
+    ///    MediaPlayer напрямую не работает. UI страницы эквалайзера остался,
+    ///    но эффект сейчас НЕ действует на реальный звук (см. SetEqualizerGain
+    ///    ниже — no-op).
+    /// 3. Ручной выбор устройства вывода убран полностью (не просто
+    ///    отключён) — PrimaryRenderDevice тоже часть AudioGraphSettings,
+    ///    у MediaPlayer нет прямого аналога.
     /// </summary>
     public class PlaybackService
     {
@@ -99,14 +100,6 @@ namespace AudioVisualizerPlayer.Services
         {
             // Намеренно пусто — см. комментарий класса.
         }
-
-        /// <summary>
-        /// НЕ ДЕЙСТВУЕТ на реальный звук — PrimaryRenderDevice это часть
-        /// AudioGraphSettings, с MediaPlayer напрямую не работает. Оставлено
-        /// как свойство (принимает значение, но ни на что не влияет), чтобы
-        /// не переписывать MainPage.OutputDeviceComboBox.
-        /// </summary>
-        public DeviceInformation SelectedRenderDevice { get; set; }
 
         public PlaybackService()
         {

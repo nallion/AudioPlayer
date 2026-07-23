@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Windows.Devices.Enumeration;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.UI;
@@ -163,11 +162,6 @@ namespace AudioVisualizerPlayer
                 _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
                 _positionTimer.Tick += PositionTimer_Tick;
                 _positionTimer.Start();
-
-                // Автоопределение наушников на этом устройстве ненадёжно —
-                // список устройств вывода заполняем один раз при старте,
-                // выбор пользователя применяется вручную (см. OutputDeviceComboBox_SelectionChanged).
-                _ = PopulateOutputDevicesAsync();
             }
             catch (Exception ex)
             {
@@ -321,113 +315,6 @@ namespace AudioVisualizerPlayer
         private void MenuButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
             RootSplitView.IsPaneOpen = !RootSplitView.IsPaneOpen;
-        }
-
-        // --- Ручной выбор устройства вывода звука ---
-
-        private class OutputDeviceOption
-        {
-            public string Name { get; set; }
-            public DeviceInformation Device { get; set; } // null = "Авто" (системное значение по умолчанию)
-        }
-
-        private bool _populatingOutputDevices = false;
-        private const string SelectedOutputDeviceIdSettingKey = "SelectedOutputDeviceId";
-
-        private async Task PopulateOutputDevicesAsync()
-        {
-            _populatingOutputDevices = true; // не реагируем на программное заполнение как на выбор пользователя
-            try
-            {
-                var options = new List<OutputDeviceOption>
-                {
-                    new OutputDeviceOption { Name = "Авто (системное значение по умолчанию)", Device = null }
-                };
-
-                try
-                {
-                    var devices = await DeviceInformation.FindAllAsync(
-                        Windows.Media.Devices.MediaDevice.GetAudioRenderSelector());
-                    foreach (var d in devices)
-                    {
-                        options.Add(new OutputDeviceOption { Name = d.Name, Device = d });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Diag.Log("Не удалось перечислить устройства вывода: " + ex);
-                }
-
-                OutputDeviceComboBox.ItemsSource = options;
-
-                // Восстанавливаем ранее сохранённый выбор — переживает
-                // перезапуск приложения (ApplicationData.LocalSettings).
-                int restoredIndex = 0; // по умолчанию — "Авто"
-                if (ApplicationData.Current.LocalSettings.Values.TryGetValue(SelectedOutputDeviceIdSettingKey, out object savedIdObj)
-                    && savedIdObj is string savedId && !string.IsNullOrEmpty(savedId))
-                {
-                    int foundIndex = options.FindIndex(o => o.Device != null && o.Device.Id == savedId);
-                    if (foundIndex >= 0)
-                    {
-                        restoredIndex = foundIndex;
-                    }
-                    else
-                    {
-                        Diag.Log($"Сохранённое устройство вывода (id={savedId}) сейчас не найдено в системе — используем Авто.");
-                    }
-                }
-
-                OutputDeviceComboBox.SelectedIndex = restoredIndex;
-                // Применяем восстановленный выбор к PlaybackService напрямую —
-                // SelectionChanged не сработает содержательно, пока
-                // _populatingOutputDevices == true (см. обработчик ниже).
-                if (_playback != null)
-                {
-                    _playback.SelectedRenderDevice = options[restoredIndex].Device;
-                }
-            }
-            finally
-            {
-                _populatingOutputDevices = false;
-            }
-        }
-
-        private async void OutputDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_populatingOutputDevices) return; // это мы сами заполнили список, не пользователь выбрал
-            if (_playback == null) return;
-
-            var selected = OutputDeviceComboBox.SelectedItem as OutputDeviceOption;
-            if (selected == null) return;
-
-            _playback.SelectedRenderDevice = selected.Device;
-            Diag.Log($"Пользователь выбрал устройство вывода: {selected.Name}");
-
-            // Сохраняем выбор — переживёт перезапуск приложения. "Авто"
-            // (Device == null) сохраняем как отсутствие значения / пустую
-            // строку, чтобы при следующем запуске корректно восстановилось
-            // именно "Авто", а не последнее реальное устройство.
-            ApplicationData.Current.LocalSettings.Values[SelectedOutputDeviceIdSettingKey] =
-                selected.Device?.Id ?? string.Empty;
-
-            // Применяем выбор сразу — если что-то уже загружено, перегружаем
-            // текущий трек с новым устройством и продолжаем с той же позиции.
-            if (_trackLoaded && App.CurrentPlaylistIndex >= 0 && App.CurrentPlaylistIndex < App.CurrentPlaylist.Count)
-            {
-                var wasPlaying = _playback.IsPlaying;
-                var previousPosition = _playback.Position;
-
-                try
-                {
-                    await LoadTrackAsync(App.CurrentPlaylist[App.CurrentPlaylistIndex]);
-                    _playback.Position = previousPosition;
-                    if (wasPlaying) _playback.Play();
-                }
-                catch (Exception ex)
-                {
-                    await new Windows.UI.Popups.MessageDialog(ex.ToString(), "Не удалось применить устройство вывода").ShowAsync();
-                }
-            }
         }
 
         private async void PlaylistMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
@@ -740,7 +627,11 @@ namespace AudioVisualizerPlayer
                 _seekDebounceTimer.Stop();
                 if (_playback != null)
                 {
-                    _playback.Position = TimeSpan.FromSeconds(_pendingSeekSeconds);
+                    var newPosition = TimeSpan.FromSeconds(_pendingSeekSeconds);
+                    _playback.Position = newPosition;
+                    // Визуализатор — свой независимый AudioGraph, о перемотке
+                    // реального плеера не знает сам по себе — синхронизируем явно.
+                    _visualizer?.Seek(newPosition);
                 }
             };
         }
