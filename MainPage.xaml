@@ -11,16 +11,14 @@
             <RowDefinition Height="Auto"/>   <!-- транспорт -->
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Center" Width="300">
-
-            <!-- Визуализатор на обычных XAML Rectangle (без Win2D) — Height каждого
-                 обновляется в code-behind при поступлении новых уровней из
-                 VisualizerService. -->
-            <StackPanel x:Name="VisualizerPanel" Orientation="Horizontal"
-                        VerticalAlignment="Bottom"
-                        Height="70" Width="300"
-                        Margin="0,22,0,8"/>
-        </StackPanel>
+        <!-- Визуализатор на обычных XAML Rectangle (без Win2D) — Height каждого
+             обновляется в code-behind при поступлении новых уровней из
+             VisualizerService. Grid с равными звёздными колонками вместо
+             StackPanel + хардкода ширины/высоты в пикселях — так визуализатор
+             сам подстраивается под реальный размер экрана, а не занимает
+             фиксированную полоску 300x70 независимо от того, сколько места
+             реально доступно. -->
+        <Grid x:Name="VisualizerPanel" Grid.Row="0" Margin="12,12,12,8"/>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="22,0,22,6">
             <TextBlock x:Name="ElapsedText" Text="0:00" Foreground="{StaticResource AppDimBrush}" FontSize="11" VerticalAlignment="Center"/>

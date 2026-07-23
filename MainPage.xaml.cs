@@ -35,20 +35,53 @@ namespace AudioVisualizerPlayer
         private void CreateVisualizerBars()
         {
             _barRectangles = new Rectangle[BarCount];
-            var accentBrush = new SolidColorBrush(Color.FromArgb(255, 0x00, 0xA2, 0xE8));
 
             for (int i = 0; i < BarCount; i++)
             {
+                VisualizerPanel.ColumnDefinitions.Add(new Windows.UI.Xaml.Controls.ColumnDefinition
+                {
+                    Width = new Windows.UI.Xaml.GridLength(1, Windows.UI.Xaml.GridUnitType.Star)
+                });
+
+                // Цвет по частоте: hue проходит по спектру радуги от низких
+                // частот (i=0) к высоким (i=BarCount-1). Диапазон 0..300 градусов
+                // (а не полные 360) — иначе конец шкалы вернулся бы обратно
+                // к тому же красному, с которого начали.
+                double hue = 300.0 * i / (BarCount - 1);
+                var barBrush = new SolidColorBrush(ColorFromHsv(hue, 0.85, 1.0));
+
                 var rect = new Rectangle
                 {
-                    Width = 300.0 / BarCount - 3,
                     Height = 4, // стартовая минимальная высота
-                    Fill = accentBrush,
-                    Margin = new Windows.UI.Xaml.Thickness(1, 0, 2, 0),
-                    VerticalAlignment = Windows.UI.Xaml.VerticalAlignment.Bottom
+                    Fill = barBrush,
+                    Margin = new Windows.UI.Xaml.Thickness(1, 0, 1, 0),
+                    VerticalAlignment = Windows.UI.Xaml.VerticalAlignment.Bottom,
+                    HorizontalAlignment = Windows.UI.Xaml.HorizontalAlignment.Stretch
                 };
+                Windows.UI.Xaml.Controls.Grid.SetColumn(rect, i);
                 _barRectangles[i] = rect;
                 VisualizerPanel.Children.Add(rect);
+            }
+        }
+
+        private static Color ColorFromHsv(double hue, double saturation, double value)
+        {
+            int hi = (int)(hue / 60) % 6;
+            double f = hue / 60 - Math.Floor(hue / 60);
+
+            byte v = (byte)(value * 255);
+            byte p = (byte)(value * (1 - saturation) * 255);
+            byte q = (byte)(value * (1 - f * saturation) * 255);
+            byte t = (byte)(value * (1 - (1 - f) * saturation) * 255);
+
+            switch (hi)
+            {
+                case 0: return Color.FromArgb(255, v, t, p);
+                case 1: return Color.FromArgb(255, q, v, p);
+                case 2: return Color.FromArgb(255, p, v, t);
+                case 3: return Color.FromArgb(255, p, q, v);
+                case 4: return Color.FromArgb(255, t, p, v);
+                default: return Color.FromArgb(255, v, p, q);
             }
         }
 
@@ -178,9 +211,15 @@ namespace AudioVisualizerPlayer
                     WriteUiDiagnostics($"Dispatcher-лямбда #{callNum} реально выполняется на UI-потоке.");
                 }
 
+                // Реальная высота панели вместо захардкоженного числа — так
+                // визуализатор всегда использует всё доступное место, а не
+                // фиксированную полоску независимо от размера экрана/раскладки.
+                double panelHeight = VisualizerPanel.ActualHeight;
+                if (panelHeight <= 0) panelHeight = 200; // пока layout не посчитан при самом первом кадре
+
                 for (int i = 0; i < BarCount && i < bars.Length; i++)
                 {
-                    double h = Math.Max(4.0, bars[i] * 70.0);
+                    double h = Math.Max(4.0, bars[i] * panelHeight);
                     _barRectangles[i].Height = h;
                 }
 
