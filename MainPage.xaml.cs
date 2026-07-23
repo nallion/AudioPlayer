@@ -462,6 +462,33 @@ namespace AudioVisualizerPlayer
             });
         }
 
+        // Дебаунс перемотки: ValueChanged срабатывает много раз в секунду во
+        // время протягивания пальцем по слайдеру. Раньше каждый такой тик сразу
+        // слал реальный _fileInput.Seek() — десятки быстрых Seek() подряд за
+        // один жест сбивали декодер mp3 в переходное состояние (тишина и в
+        // динамиках, и в визуализаторе, хотя позиция продолжала расти — decoder
+        // "завис", а логическое время в графе — нет). Теперь копим последнее
+        // желаемое значение и реально сикаем только когда движение утихло на
+        // ~200мс — то есть один настоящий Seek() на весь жест, а не на каждый
+        // его промежуточный кадр.
+        private DispatcherTimer _seekDebounceTimer;
+        private double _pendingSeekSeconds;
+
+        private void EnsureSeekDebounceTimer()
+        {
+            if (_seekDebounceTimer != null) return;
+
+            _seekDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+            _seekDebounceTimer.Tick += (s, e) =>
+            {
+                _seekDebounceTimer.Stop();
+                if (_playback != null)
+                {
+                    _playback.Position = TimeSpan.FromSeconds(_pendingSeekSeconds);
+                }
+            };
+        }
+
         // ValueChanged — единственное событие Slider, которое гарантированно
         // срабатывает при ЛЮБОМ изменении значения (перетаскивание пальцем,
         // тап по треку, стрелки клавиатуры), в отличие от PointerPressed/Released.
@@ -470,7 +497,14 @@ namespace AudioVisualizerPlayer
             if (_isProgrammaticSliderUpdate) return; // это мы сами обновили из таймера, не пользователь
             if (_playback == null) return;
 
-            _playback.Position = TimeSpan.FromSeconds(e.NewValue);
+            EnsureSeekDebounceTimer();
+            _pendingSeekSeconds = e.NewValue;
+
+            // Каждый новый тик сбрасывает таймер заново — реальный Seek()
+            // произойдёт только через 200мс ПОСЛЕ того, как значения
+            // перестанут меняться (палец остановился/отпущен).
+            _seekDebounceTimer.Stop();
+            _seekDebounceTimer.Start();
         }
 
         private void PlayPauseButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
