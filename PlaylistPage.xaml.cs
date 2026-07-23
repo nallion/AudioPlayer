@@ -1,5 +1,6 @@
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
+using AudioVisualizerPlayer.Helpers;
 using AudioVisualizerPlayer.Models;
 
 namespace AudioVisualizerPlayer
@@ -33,14 +34,17 @@ namespace AudioVisualizerPlayer
         {
             var item = (PlaylistItem)e.ClickedItem;
             int index = App.CurrentPlaylist.IndexOf(item);
+            Diag.Log($"PlaylistPage.ItemClick: index={index}, item={item?.Title}");
             if (index < 0) return;
 
             App.RequestedPlaylistIndex = index;
 
+            Diag.Log($"PlaylistPage: перед Frame.GoBack(), CanGoBack={Frame.CanGoBack}");
             if (Frame.CanGoBack)
             {
                 Frame.GoBack();
             }
+            Diag.Log("PlaylistPage: после Frame.GoBack() (синхронная часть ItemClick завершена)");
         }
     }
 }

@@ -79,6 +79,7 @@
     <Compile Include="Services\PlaybackService.cs" />
     <Compile Include="Services\VisualizerService.cs" />
     <Compile Include="Helpers\FFT.cs" />
+    <Compile Include="Helpers\Diag.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
 
