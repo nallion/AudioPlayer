@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Windows.Devices.Enumeration;
 using Windows.Media;
 using Windows.Media.Audio;
+using Windows.Media.Effects;
 using Windows.Media.Render;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -41,6 +42,17 @@ namespace AudioVisualizerPlayer.Services
         private AudioFileInputNode _fileInput;
         private AudioSubmixNode _submix;
         private AudioDeviceOutputNode _deviceOutput;
+        private EqualizerEffectDefinition _equalizer;
+        private EqualizerBand[] _equalizerBands;
+
+        /// <summary>
+        /// Частоты 5 полос классического графического эквалайзера. Bandwidth
+        /// подобран примерно пропорционально центральной частоте (грубо
+        /// постоянная добротность) — не критично для функциональности,
+        /// просто влияет на "ширину" влияния каждого слайдера.
+        /// </summary>
+        public static readonly double[] EqualizerFrequencies = { 60, 250, 1000, 4000, 12000 };
+        private static readonly double[] EqualizerBandwidths = { 50, 150, 800, 2500, 6000 };
 
         public SystemMediaTransportControls Smtc { get; }
 
@@ -57,6 +69,21 @@ namespace AudioVisualizerPlayer.Services
         /// </summary>
         public AudioGraph Graph => _graph;
         public AudioSubmixNode Submix => _submix;
+
+        /// <summary>
+        /// Меняет громкость полосы эквалайзера в реальном времени, без
+        /// пересборки графа — EqualizerBand.Gain можно менять на лету, это
+        /// как раз одно из удобств встроенного EqualizerEffectDefinition.
+        /// Не сохраняет в LocalSettings сама — это делает вызывающий код
+        /// (см. EqualizerPage), здесь только применение к текущему графу.
+        /// </summary>
+        public void SetEqualizerGain(int bandIndex, double gainDb)
+        {
+            if (_equalizerBands != null && bandIndex >= 0 && bandIndex < _equalizerBands.Length)
+            {
+                _equalizerBands[bandIndex].Gain = gainDb;
+            }
+        }
 
         /// <summary>
         /// Ручной выбор устройства вывода пользователем (см. MainPage,
@@ -204,6 +231,35 @@ namespace AudioVisualizerPlayer.Services
             _fileInput.AddOutgoingConnection(_submix);
             AudioVisualizerPlayer.Helpers.Diag.Log("  FileInput -> Submix подключено");
 
+            // Эквалайзер вешаем на Submix — единственную точку, через которую
+            // проходит ВЕСЬ звук (и в динамики, и в анализ визуализатора).
+            // Граф (и Submix) пересоздаётся заново при каждой загрузке трека,
+            // поэтому полосы создаём здесь же, каждый раз заново, подставляя
+            // текущие сохранённые значения громкости из App.EqualizerGainsDb —
+            // иначе эквалайзер сбрасывался бы на "плоский" при каждом Next/Prev.
+            try
+            {
+                _equalizer = new EqualizerEffectDefinition(_graph);
+                _equalizerBands = new EqualizerBand[EqualizerFrequencies.Length];
+                for (int i = 0; i < EqualizerFrequencies.Length; i++)
+                {
+                    double gain = (App.EqualizerGainsDb != null && i < App.EqualizerGainsDb.Length)
+                        ? App.EqualizerGainsDb[i] : 0.0;
+                    _equalizerBands[i] = _equalizer.CreateBand(EqualizerFrequencies[i], EqualizerBandwidths[i], gain);
+                }
+                _submix.EffectDefinitions.Add(_equalizer);
+                AudioVisualizerPlayer.Helpers.Diag.Log("  Эквалайзер создан и подключён к Submix");
+            }
+            catch (Exception ex)
+            {
+                // Не критично — если эквалайзер почему-то не создался, звук
+                // просто играет без него (плоская АЧХ), это не должно ронять
+                // всю загрузку трека.
+                AudioVisualizerPlayer.Helpers.Diag.Log("  Не удалось создать эквалайзер: " + ex);
+                _equalizer = null;
+                _equalizerBands = null;
+            }
+
             var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
             AudioVisualizerPlayer.Helpers.Diag.Log($"  CreateDeviceOutputNodeAsync status={deviceOutputResult.Status}");
             if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
@@ -280,6 +336,8 @@ namespace AudioVisualizerPlayer.Services
             _fileInput = null;
             _submix = null;
             _deviceOutput = null;
+            _equalizer = null;
+            _equalizerBands = null;
         }
     }
 }

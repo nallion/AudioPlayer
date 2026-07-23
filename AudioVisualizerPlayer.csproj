@@ -75,6 +75,9 @@
     <Compile Include="PlaylistPage.xaml.cs">
       <DependentUpon>PlaylistPage.xaml</DependentUpon>
     </Compile>
+    <Compile Include="EqualizerPage.xaml.cs">
+      <DependentUpon>EqualizerPage.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Models\PlaylistItem.cs" />
     <Compile Include="Services\PlaybackService.cs" />
     <Compile Include="Services\VisualizerService.cs" />
@@ -93,6 +96,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="PlaylistPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="EqualizerPage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

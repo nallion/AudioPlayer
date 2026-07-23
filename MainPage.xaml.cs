@@ -416,6 +416,18 @@ namespace AudioVisualizerPlayer
             Frame.Navigate(typeof(PlaylistPage));
         }
 
+        private async void EqualizerMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        {
+            RootSplitView.IsPaneOpen = false;
+
+            // Та же задержка перед навигацией, что и для PlaylistMenuItem —
+            // без неё анимация закрытия SplitView может не успеть доиграть,
+            // и это ловит ввод на возврате (см. историю бага с зависанием).
+            await Task.Delay(250);
+
+            Frame.Navigate(typeof(EqualizerPage));
+        }
+
         private void ShowPlaylistMenuItemIfNeeded()
         {
             PlaylistMenuItem.Visibility = App.CurrentPlaylist.Count > 0

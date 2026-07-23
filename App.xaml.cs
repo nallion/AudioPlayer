@@ -31,6 +31,51 @@ namespace AudioVisualizerPlayer
         // подхватывает значение и запускает нужный трек.
         public static int? RequestedPlaylistIndex { get; set; }
 
+        // Эквалайзер: 5 полос (см. PlaybackService.EqualizerFrequencies),
+        // значения в дБ, диапазон обычно -15..+15. Общий массив — доступен и
+        // PlaybackService (пересоздаёт полосы с этими значениями при каждой
+        // загрузке трека, граф ведь пересоздаётся заново), и EqualizerPage
+        // (двигает слайдеры). Загружается из LocalSettings при старте —
+        // переживает перезапуск приложения.
+        public static double[] EqualizerGainsDb { get; } = LoadEqualizerGains();
+
+        private static double[] LoadEqualizerGains()
+        {
+            var result = new double[PlaybackService.EqualizerFrequencies.Length];
+            try
+            {
+                if (Windows.Storage.ApplicationData.Current.LocalSettings.Values.TryGetValue("EqualizerGainsDb", out object saved)
+                    && saved is string s && !string.IsNullOrEmpty(s))
+                {
+                    var parts = s.Split(',');
+                    for (int i = 0; i < result.Length && i < parts.Length; i++)
+                    {
+                        double.TryParse(parts[i], System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out result[i]);
+                    }
+                }
+            }
+            catch
+            {
+                // Не критично — просто останется плоская АЧХ (все нули).
+            }
+            return result;
+        }
+
+        public static void SaveEqualizerGains()
+        {
+            try
+            {
+                Windows.Storage.ApplicationData.Current.LocalSettings.Values["EqualizerGainsDb"] =
+                    string.Join(",", System.Linq.Enumerable.Select(EqualizerGainsDb,
+                        g => g.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            }
+            catch
+            {
+                // Не критично — просто не сохранится между запусками.
+            }
+        }
+
         public App()
         {
             // ВАЖНО: подписка на UnhandledException должна идти ДО InitializeComponent().
