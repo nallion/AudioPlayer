@@ -126,7 +126,9 @@ namespace AudioVisualizerPlayer
                 _visualizer = new VisualizerService();
                 await _visualizer.InitializeAsync(file);
                 _visualizer.LevelsChanged += OnLevelsChanged;
+                WriteUiDiagnostics("Подписка на LevelsChanged выполнена (ШАГ 4).");
                 _visualizer.Start();
+                WriteUiDiagnostics("_visualizer.Start() вызван из MainPage (ШАГ 4).");
             }
             catch (Exception ex)
             {

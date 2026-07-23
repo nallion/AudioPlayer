@@ -132,6 +132,13 @@ namespace AudioVisualizerPlayer.Services
                 Complex[] spectrum = FFT.Transform(chunk);
                 float[] bars = FFT.ToBars(spectrum, BarCount);
 
+                if (_quantumCount <= 3)
+                {
+                    var handler = LevelsChanged;
+                    WriteDiagnostics($"Перед Invoke #{_quantumCount}: LevelsChanged == null: {handler == null}, " +
+                        $"bars[0]={(bars.Length > 0 ? bars[0].ToString() : "N/A")}, bars.Length={bars.Length}");
+                }
+
                 LevelsChanged?.Invoke(this, bars);
             }
             catch (Exception ex)
