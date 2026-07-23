@@ -54,13 +54,27 @@ namespace AudioVisualizerPlayer.Services
 
         private void Detach()
         {
-            if (_graph != null)
+            // Защита от ObjectDisposedException: граф мог быть уже освобождён
+            // снаружи (например, PlaybackService.LoadAsync сносит старый граф
+            // при загрузке нового трека) — тогда отписка/Dispose здесь просто
+            // не нужны, а не должны валить приложение с исключением.
+            try
             {
-                _graph.QuantumStarted -= OnQuantumStarted;
+                if (_graph != null)
+                {
+                    _graph.QuantumStarted -= OnQuantumStarted;
+                }
+                _frameOutput?.Dispose();
             }
-            _frameOutput?.Dispose();
-            _frameOutput = null;
-            _graph = null;
+            catch (ObjectDisposedException)
+            {
+                // Граф/узел уже уничтожены снаружи — нам тут больше нечего освобождать.
+            }
+            finally
+            {
+                _frameOutput = null;
+                _graph = null;
+            }
         }
 
         // Накопительный буфер: один quantum обычно приносит гораздо меньше

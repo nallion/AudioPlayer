@@ -268,6 +268,16 @@ namespace AudioVisualizerPlayer
         /// </summary>
         private async Task LoadTrackAsync(StorageFile file)
         {
+            // ВАЖНО: старый VisualizerService нужно освободить ДО вызова
+            // _playback.LoadAsync — тот внутри себя вызывает DisposeGraph()
+            // и сносит старый AudioGraph/AudioFileInputNode ПЕРВЫМ делом при
+            // загрузке нового трека. Если освобождать визуализатор ПОСЛЕ
+            // LoadAsync (как было раньше), Detach() пытается отписаться от
+            // графа, который PlaybackService уже уничтожил мгновением раньше —
+            // отсюда ObjectDisposedException при переключении на следующий трек.
+            _visualizer?.Dispose();
+            _visualizer = null;
+
             string title, artist;
             try
             {
@@ -302,7 +312,6 @@ namespace AudioVisualizerPlayer
 
             try
             {
-                _visualizer?.Dispose();
                 _visualizer = new VisualizerService();
                 _visualizer.AttachTo(_playback);
                 _visualizer.LevelsChanged += OnLevelsChanged;
