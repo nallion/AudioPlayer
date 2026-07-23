@@ -73,7 +73,13 @@ namespace AudioVisualizerPlayer.Helpers
         /// </summary>
         public static float[] ToBars(Complex[] spectrum, int barCount)
         {
-            int usableBins = spectrum.Length / 2; // вторая половина — зеркало
+            // Обрезаем верхние ~10% спектра — зона рядом с частотой Найквиста
+            // ненадёжна (утечка спектра, шум кодирования, погрешности нашей
+            // простой FFT-реализации), и в сочетании с MAX + самым большим
+            // коэффициентом усиления там раньше вылезал изолированный "взрыв"
+            // на самом последнем баре, никак не связанный с остальной кривой.
+            // Эти частоты и так на грани слышимости, ничего не теряем.
+            int usableBins = (int)(spectrum.Length / 2 * 0.9);
             var bars = new float[barCount];
 
             double logMin = Math.Log(1);
