@@ -109,6 +109,14 @@ namespace AudioVisualizerPlayer.Services
             }
         }
 
+        // Накопительный буфер: один quantum обычно приносит гораздо меньше
+        // FftSize сэмплов (это ~10мс аудио), поэтому копим их между вызовами
+        // QuantumStarted, а не ждём все 1024 разом за один callback — раньше
+        // именно из-за этого метод всегда делал ранний return и до FFT/Invoke
+        // дело не доходило вообще ни разу.
+        private readonly System.Collections.Generic.List<float> _sampleBuffer = new System.Collections.Generic.List<float>(FftSize * 2);
+        private static bool _sampleSizeLogged = false;
+
         private void OnQuantumStarted(AudioGraph sender, object args)
         {
             if (!_firstQuantumLogged)
@@ -123,16 +131,34 @@ namespace AudioVisualizerPlayer.Services
 
                 Windows.Media.AudioFrame frame = _frameOutput.GetFrame();
                 float[] samples = ExtractSamples(frame);
-                if (samples == null || samples.Length < FftSize) return;
 
-                // Берём последний блок нужного размера
+                if (!_sampleSizeLogged && samples != null)
+                {
+                    _sampleSizeLogged = true;
+                    WriteDiagnostics($"Размер одного quantum: {samples.Length} сэмплов (FftSize нужен {FftSize}).");
+                }
+
+                if (samples == null || samples.Length == 0) return;
+
+                _sampleBuffer.AddRange(samples);
+
+                // Не даём буферу расти бесконечно, если по какой-то причине
+                // накопление опережает потребление.
+                if (_sampleBuffer.Count > FftSize * 4)
+                {
+                    _sampleBuffer.RemoveRange(0, _sampleBuffer.Count - FftSize * 2);
+                }
+
+                if (_sampleBuffer.Count < FftSize) return;
+
+                // Берём последние FftSize сэмплов из накопленного буфера
                 var chunk = new float[FftSize];
-                Array.Copy(samples, samples.Length - FftSize, chunk, 0, FftSize);
+                _sampleBuffer.CopyTo(_sampleBuffer.Count - FftSize, chunk, 0, FftSize);
 
                 Complex[] spectrum = FFT.Transform(chunk);
                 float[] bars = FFT.ToBars(spectrum, BarCount);
 
-                if (_quantumCount <= 3)
+                if (_quantumCount <= 5)
                 {
                     var handler = LevelsChanged;
                     WriteDiagnostics($"Перед Invoke #{_quantumCount}: LevelsChanged == null: {handler == null}, " +
@@ -147,7 +173,7 @@ namespace AudioVisualizerPlayer.Services
                 // необработанное исключение здесь может тихо проглатываться самим
                 // AudioGraph, никак не долетая ни до try/catch в UI-коде, ни до
                 // Application.UnhandledException.
-                if (_quantumCount <= 3) // логируем первые несколько, не заваливая лог
+                if (_quantumCount <= 5) // логируем первые несколько, не заваливая лог
                 {
                     WriteDiagnostics("OnQuantumStarted бросил исключение: " + ex);
                 }
