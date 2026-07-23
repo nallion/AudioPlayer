@@ -240,12 +240,17 @@ namespace AudioVisualizerPlayer.Services
             try
             {
                 _equalizer = new EqualizerEffectDefinition(_graph);
+                _equalizer.NumberOfBands = (uint)EqualizerFrequencies.Length;
                 _equalizerBands = new EqualizerBand[EqualizerFrequencies.Length];
                 for (int i = 0; i < EqualizerFrequencies.Length; i++)
                 {
                     double gain = (App.EqualizerGainsDb != null && i < App.EqualizerGainsDb.Length)
                         ? App.EqualizerGainsDb[i] : 0.0;
-                    _equalizerBands[i] = _equalizer.CreateBand(EqualizerFrequencies[i], EqualizerBandwidths[i], gain);
+                    var band = _equalizer.Bands[(uint)i];
+                    band.CenterFrequency = EqualizerFrequencies[i];
+                    band.Bandwidth = EqualizerBandwidths[i];
+                    band.Gain = gain;
+                    _equalizerBands[i] = band;
                 }
                 _submix.EffectDefinitions.Add(_equalizer);
                 AudioVisualizerPlayer.Helpers.Diag.Log("  Эквалайзер создан и подключён к Submix");
