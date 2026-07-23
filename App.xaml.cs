@@ -123,6 +123,23 @@ namespace AudioVisualizerPlayer
                     rootFrame = new Frame();
                     rootFrame.NavigationFailed += OnNavigationFailed;
                     Window.Current.Content = rootFrame;
+
+                    // Без этой подписки системная кнопка "Назад" (аппаратная
+                    // или программная) на корневой странице по умолчанию
+                    // просто сворачивает приложение — она не связана
+                    // автоматически с Frame.GoBack(). Подписываемся один раз
+                    // здесь, глобально для всего приложения.
+                    Windows.UI.Core.SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
+                    rootFrame.Navigated += (s, args) =>
+                    {
+                        // Показываем системную кнопку "Назад" в заголовке
+                        // (актуально на десктопе/планшете; на телефоне не
+                        // мешает) только когда реально есть куда возвращаться.
+                        Windows.UI.Core.SystemNavigationManager.GetForCurrentView().AppViewBackButtonVisibility =
+                            rootFrame.CanGoBack
+                                ? Windows.UI.Core.AppViewBackButtonVisibility.Visible
+                                : Windows.UI.Core.AppViewBackButtonVisibility.Collapsed;
+                    };
                 }
 
                 if (e.PrelaunchActivated == false)
@@ -142,6 +159,20 @@ namespace AudioVisualizerPlayer
                 WriteCrashLogSync(ex.ToString());
                 throw;
             }
+        }
+
+        private void OnBackRequested(object sender, Windows.UI.Core.BackRequestedEventArgs e)
+        {
+            var rootFrame = Window.Current.Content as Frame;
+            if (rootFrame != null && rootFrame.CanGoBack)
+            {
+                e.Handled = true;
+                rootFrame.GoBack();
+            }
+            // Если возвращаться некуда (мы уже на MainPage, самой первой
+            // странице) — e.Handled оставляем false, и системная кнопка
+            // "Назад" сработает как обычно (свернёт/закроет приложение) —
+            // это ожидаемое поведение на корневой странице.
         }
 
         private void OnNavigationFailed(object sender, NavigationFailedEventArgs e)
