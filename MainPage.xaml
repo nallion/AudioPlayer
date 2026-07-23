@@ -54,11 +54,19 @@
                 </Button>
 
                 <!-- Название трека и исполнителя — из ID3-тега файла, если тег пустой,
-                     показываем просто имя файла (см. LoadTrackAsync в code-behind). -->
+                     показываем просто имя файла (см. LoadTrackAsync в code-behind).
+                     Название — бегущая строка (см. StartTitleMarqueeIfNeeded), если
+                     не помещается по ширине; исполнитель — обычная обрезка многоточием. -->
                 <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="12,0,12,4">
-                    <TextBlock x:Name="TrackTitleText" Text="" FontSize="18" FontWeight="SemiBold"
-                               Foreground="White" HorizontalAlignment="Center"
-                               TextTrimming="CharacterEllipsis" MaxWidth="360"/>
+                    <Grid x:Name="TitleClipContainer" Width="320" Height="24"
+                          HorizontalAlignment="Center" SizeChanged="TitleClipContainer_SizeChanged">
+                        <TextBlock x:Name="TrackTitleText" Text="" FontSize="18" FontWeight="SemiBold"
+                                   Foreground="White" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <TextBlock.RenderTransform>
+                                <TranslateTransform x:Name="TitleMarqueeTransform"/>
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
+                    </Grid>
                     <TextBlock x:Name="TrackArtistText" Text="" FontSize="13"
                                Foreground="{StaticResource AppDimBrush}" HorizontalAlignment="Center"
                                TextTrimming="CharacterEllipsis" MaxWidth="360" Margin="0,2,0,0"/>

@@ -9,6 +9,7 @@ using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Media.Animation;
 using Windows.UI.Xaml.Shapes;
 using Windows.UI.Xaml.Navigation;
 using AudioVisualizerPlayer.Models;
@@ -182,6 +183,12 @@ namespace AudioVisualizerPlayer
                     // Не критично — просто не будет визуализации, звук не пострадает.
                 }
             }
+
+            // Бегущая строка тоже была остановлена в OnNavigatedFrom — заводим заново.
+            if (_trackLoaded)
+            {
+                StartTitleMarqueeIfNeeded();
+            }
         }
 
         private void PositionTimer_Tick(object sender, object e)
@@ -197,6 +204,72 @@ namespace AudioVisualizerPlayer
 
         private static string FormatTime(TimeSpan t) =>
             $"{(int)t.TotalMinutes}:{t.Seconds:D2}";
+
+        // --- Бегущая строка для названия трека ---
+
+        private Storyboard _titleMarqueeStoryboard;
+
+        private void TitleClipContainer_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            // UWP не обрезает контент, вышедший за пределы панели через
+            // RenderTransform, автоматически — нужен явный Clip по размеру
+            // самого контейнера.
+            TitleClipContainer.Clip = new RectangleGeometry
+            {
+                Rect = new Windows.Foundation.Rect(0, 0, e.NewSize.Width, e.NewSize.Height)
+            };
+
+            // Пересчитываем бегущую строку при изменении размера контейнера
+            // (например, поворот экрана) — не только при смене трека.
+            StartTitleMarqueeIfNeeded();
+        }
+
+        private void StartTitleMarqueeIfNeeded()
+        {
+            _titleMarqueeStoryboard?.Stop();
+            _titleMarqueeStoryboard = null;
+
+            double containerWidth = TitleClipContainer.ActualWidth;
+            if (containerWidth <= 0) return; // ещё не посчитан layout — SizeChanged вызовет нас снова
+
+            TrackTitleText.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            double textWidth = TrackTitleText.DesiredSize.Width;
+
+            double overflow = textWidth - containerWidth;
+
+            if (overflow <= 0)
+            {
+                // Помещается целиком — просто центрируем через тот же
+                // TranslateTransform, который иначе используется для прокрутки.
+                TitleMarqueeTransform.X = (containerWidth - textWidth) / 2.0;
+                return;
+            }
+
+            // Не помещается — запускаем бесконечную бегущую строку: пауза у
+            // левого края, скролл до конца текста, пауза, скролл обратно.
+            const double pixelsPerSecond = 40.0;
+            double scrollSeconds = overflow / pixelsPerSecond;
+
+            var timeline = new DoubleAnimationUsingKeyFrames();
+            Storyboard.SetTarget(timeline, TitleMarqueeTransform);
+            Storyboard.SetTargetProperty(timeline, "X");
+
+            TimeSpan t0 = TimeSpan.Zero;
+            TimeSpan t1 = TimeSpan.FromSeconds(1);                       // пауза у начала
+            TimeSpan t2 = t1 + TimeSpan.FromSeconds(scrollSeconds);       // скролл к концу
+            TimeSpan t3 = t2 + TimeSpan.FromSeconds(1);                  // пауза у конца
+            TimeSpan t4 = t3 + TimeSpan.FromSeconds(scrollSeconds);       // скролл обратно к началу
+
+            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t0, Value = 0 });
+            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t1, Value = 0 });
+            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t2, Value = -overflow });
+            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t3, Value = -overflow });
+            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t4, Value = 0 });
+
+            _titleMarqueeStoryboard = new Storyboard { RepeatBehavior = RepeatBehavior.Forever };
+            _titleMarqueeStoryboard.Children.Add(timeline);
+            _titleMarqueeStoryboard.Begin();
+        }
 
         // --- Боковое меню ---
 
@@ -416,6 +489,7 @@ namespace AudioVisualizerPlayer
 
                 TrackTitleText.Text = item.Title;
                 TrackArtistText.Text = item.Artist;
+                StartTitleMarqueeIfNeeded();
 
                 // Duration доступна сразу после LoadAsync — AudioFileInputNode
                 // читает метаданные файла синхронно при создании узла.
@@ -545,6 +619,7 @@ namespace AudioVisualizerPlayer
         {
             base.OnNavigatedFrom(e);
             _positionTimer?.Stop();
+            _titleMarqueeStoryboard?.Stop();
             // Освобождаем анализирующее соединение при уходе со страницы —
             // визуализация не нужна, пока не видно MainPage (например, ушли
             // на PlaylistPage). Звук продолжит играть через _playback,

@@ -90,83 +90,41 @@ namespace AudioVisualizerPlayer.Services
             // Освобождаем предыдущий граф, если уже что-то играло
             DisposeGraph();
 
-            // Явно задаём стандартный PCM-формат (44100Гц, стерео, 16 бит)
-            // вместо авто-согласования с текущим устройством по умолчанию.
-            // Гипотеза: авто-выбор формата при создании НОВОГО графа, когда
-            // наушники уже являются устройством по умолчанию, договаривается
-            // о чём-то несовместимом на этом железе — отсюда стабильный
-            // XAUDIO2_E_INVALID_CALL именно при холодном старте с уже
-            // подключёнными наушниками (перемаршрутизация уже играющего
-            // потока идёт другим путём в ОС и эту проблему не задевает).
-            var settings = new AudioGraphSettings(AudioRenderCategory.Media)
+            // Сначала пробуем БЕЗ явного формата — это сохраняет нормальное
+            // поведение "следования за устройством по умолчанию" (наушники,
+            // подключённые ВО ВРЕМЯ воспроизведения, подхватываются на лету).
+            // Только если это упадёт (холодный старт с уже подключёнными
+            // наушниками — см. комментарий ниже), пересоздаём граф с явным
+            // PCM-форматом как запасной вариант. Раньше явный формат стоял
+            // всегда, и это чинило холодный старт, но ломало переключение
+            // на лету — теперь он используется только как fallback.
+            Exception lastError = null;
+            for (int attempt = 1; attempt <= 2; attempt++)
             {
-                EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(44100, 2, 16)
-            };
-            var graphResult = await AudioGraph.CreateAsync(settings);
-            if (graphResult.Status != AudioGraphCreationStatus.Success)
-                throw new InvalidOperationException($"Не удалось создать AudioGraph (это граф №{_graphCreationCount + 1} за сессию): " + graphResult.Status);
-
-            _graph = graphResult.Graph;
-            _graphCreationCount++;
-
-            var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
-            if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
-                throw new InvalidOperationException($"Не удалось открыть файл (граф №{_graphCreationCount} за сессию): " + fileInputResult.Status);
-
-            _fileInput = fileInputResult.FileInputNode;
-
-            // Промежуточный submix-узел — на него заводим ЕДИНСТВЕННОЕ исходящее
-            // соединение от FileInput (сам FileInput его надёжно поддерживает),
-            // а дальше уже от submix идут ДВА соединения: в динамики и в
-            // VisualizerService. Напрямую от FileInput два соединения давали
-            // XAUDIO2_E_INVALID_CALL на этом устройстве.
-            _submix = _graph.CreateSubmixNode();
-            _fileInput.AddOutgoingConnection(_submix);
-
-            // Выяснено опытным путём: если наушники уже подключены В МОМЕНТ
-            // холодного старта приложения, создание/подключение вывода на
-            // устройство иногда падает с XAUDIO2_E_INVALID_CALL — похоже на
-            // гонку инициализации: аудио-эндпоинт наушников ещё не до конца
-            // готов ровно в момент создания графа. Если наушники подключаются
-            // УЖЕ ВО ВРЕМЯ воспроизведения — переключение проходит нормально,
-            // это не проблема наушников как таковых. Лечим коротким повтором
-            // с задержкой — классический приём для гонок инициализации
-            // аудио-эндпоинтов.
-            AudioDeviceOutputNode deviceOutput = null;
-            Exception lastDeviceOutputError = null;
-            for (int attempt = 1; attempt <= 3 && deviceOutput == null; attempt++)
-            {
-                AudioDeviceOutputNode candidate = null;
+                bool useExplicitFormat = attempt > 1;
                 try
                 {
-                    var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
-                    if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
-                        throw new InvalidOperationException("Статус: " + deviceOutputResult.Status);
-
-                    candidate = deviceOutputResult.DeviceOutputNode;
-                    _submix.AddOutgoingConnection(candidate); // сама точка, где раньше падало
-
-                    deviceOutput = candidate;
+                    await BuildGraphAsync(file, useExplicitFormat);
+                    lastError = null;
+                    break;
                 }
                 catch (Exception ex)
                 {
-                    candidate?.Dispose(); // узел мог успеть создаться, даже если подключение упало
-                    lastDeviceOutputError = ex;
-                    if (attempt < 3)
+                    lastError = ex;
+                    DisposeGraph(); // чистим частично созданное состояние перед повтором
+                    if (attempt == 1)
                     {
                         await Task.Delay(300);
                     }
                 }
             }
 
-            if (deviceOutput == null)
+            if (lastError != null)
             {
                 throw new InvalidOperationException(
-                    $"Не удалось создать вывод на устройство после 3 попыток (граф №{_graphCreationCount} за сессию): "
-                    + lastDeviceOutputError?.Message, lastDeviceOutputError);
+                    $"Не удалось создать аудио-граф ни обычным способом, ни с явным форматом (граф-попытки за сессию: {_graphCreationCount}): "
+                    + lastError.Message, lastError);
             }
-
-            _deviceOutput = deviceOutput;
 
             _fileInput.FileCompleted += (s, a) =>
             {
@@ -186,6 +144,51 @@ namespace AudioVisualizerPlayer.Services
             }
 
             updater.Update();
+        }
+
+        /// <summary>
+        /// Собирает граф целиком: AudioGraph → FileInput → Submix → DeviceOutput.
+        /// useExplicitFormat=false — обычный путь, авто-согласование формата
+        /// (сохраняет следование за устройством по умолчанию). true — запасной
+        /// путь с явным PCM 44100/2/16, который чинит холодный старт с уже
+        /// подключёнными наушниками, но ценой отключения автослежения —
+        /// поэтому используется только как fallback после неудачной попытки.
+        /// </summary>
+        private async Task BuildGraphAsync(StorageFile file, bool useExplicitFormat)
+        {
+            var settings = new AudioGraphSettings(AudioRenderCategory.Media);
+            if (useExplicitFormat)
+            {
+                settings.EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(44100, 2, 16);
+            }
+
+            var graphResult = await AudioGraph.CreateAsync(settings);
+            if (graphResult.Status != AudioGraphCreationStatus.Success)
+                throw new InvalidOperationException("Не удалось создать AudioGraph: " + graphResult.Status);
+
+            _graph = graphResult.Graph;
+            _graphCreationCount++;
+
+            var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
+            if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
+                throw new InvalidOperationException("Не удалось открыть файл: " + fileInputResult.Status);
+
+            _fileInput = fileInputResult.FileInputNode;
+
+            // Промежуточный submix-узел — на него заводим ЕДИНСТВЕННОЕ исходящее
+            // соединение от FileInput (сам FileInput его надёжно поддерживает),
+            // а дальше уже от submix идут ДВА соединения: в динамики и в
+            // VisualizerService. Напрямую от FileInput два соединения давали
+            // XAUDIO2_E_INVALID_CALL на этом устройстве.
+            _submix = _graph.CreateSubmixNode();
+            _fileInput.AddOutgoingConnection(_submix);
+
+            var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
+            if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
+                throw new InvalidOperationException("Не удалось создать вывод на устройство: " + deviceOutputResult.Status);
+
+            _deviceOutput = deviceOutputResult.DeviceOutputNode;
+            _submix.AddOutgoingConnection(_deviceOutput); // сама точка, где раньше падало на холодном старте
         }
 
         public void Play()
