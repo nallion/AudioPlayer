@@ -41,6 +41,14 @@ namespace AudioVisualizerPlayer.Services
     {
         private MediaPlayer _player;
 
+        /// <summary>
+        /// Частоты полос для UI страницы эквалайзера (подписи слайдеров и
+        /// размер App.EqualizerGainsDb) — сам эффект сейчас НЕ действует на
+        /// звук (см. SetEqualizerGain выше), но массив нужен, чтобы страница
+        /// эквалайзера и хранилище настроек вообще могли построиться.
+        /// </summary>
+        public static readonly double[] EqualizerFrequencies = { 60, 250, 1000, 4000 };
+
         public SystemMediaTransportControls Smtc => _player?.SystemMediaTransportControls;
 
         /// <summary>true — сейчас играет, false — на паузе/остановлено.</summary>
