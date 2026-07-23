@@ -45,7 +45,7 @@ namespace AudioVisualizerPlayer.Services
             Detach();
 
             _graph = playback.Graph;
-            if (_graph == null || playback.FileInput == null)
+            if (_graph == null || playback.Submix == null)
                 throw new InvalidOperationException("PlaybackService ещё не загрузил трек — AttachTo нужно вызывать после LoadAsync.");
 
             try
@@ -59,7 +59,9 @@ namespace AudioVisualizerPlayer.Services
 
             try
             {
-                playback.FileInput.AddOutgoingConnection(_frameOutput);
+                // От Submix, а не от FileInput напрямую — см. комментарий
+                // в PlaybackService про XAUDIO2_E_INVALID_CALL.
+                playback.Submix.AddOutgoingConnection(_frameOutput);
             }
             catch (Exception ex)
             {

@@ -14,10 +14,18 @@ namespace AudioVisualizerPlayer.Services
     /// независимый AudioGraph, читающий тот же файл заново. Это давало дрейф
     /// по времени между звуком и визуализацией (два независимых чтения одного
     /// файла со своим таймингом каждое). Теперь один AudioGraph и один
-    /// AudioFileInputNode — звук идёт в AudioDeviceOutputNode, а анализ
-    /// (VisualizerService) подключается вторым исходящим соединением от ТОГО ЖЕ
-    /// AudioFileInputNode. Дрейфа больше нет в принципе — это один и тот же
-    /// поток данных, а не два независимых.
+    /// AudioFileInputNode.
+    ///
+    /// ВАЖНО: AudioFileInputNode.AddOutgoingConnection() напрямую в ДВА узла
+    /// одновременно (DeviceOutput + FrameOutput для анализа) бросает
+    /// XAUDIO2_E_INVALID_CALL (0x88960001) на этом устройстве — похоже, узел
+    /// чтения сжатого файла не поддерживает больше одного исходящего
+    /// соединения надёжно. Решение: между FileInput и двумя потребителями
+    /// стоит промежуточный AudioSubmixNode — именно submix-узлы штатно
+    /// поддерживают разветвление на несколько выходов. FileInput → Submix →
+    /// (DeviceOutput И FrameOutput для VisualizerService). Дрейфа по-прежнему
+    /// нет — это всё ещё один и тот же поток данных, просто с одной
+    /// промежуточной точкой разветвления.
     ///
     /// MediaPlayer убран — вместе с ним ушли его автоматические
     /// SystemMediaTransportControls и MediaPlaybackSession.PositionChanged.
@@ -30,6 +38,7 @@ namespace AudioVisualizerPlayer.Services
     {
         private AudioGraph _graph;
         private AudioFileInputNode _fileInput;
+        private AudioSubmixNode _submix;
         private AudioDeviceOutputNode _deviceOutput;
 
         public SystemMediaTransportControls Smtc { get; }
@@ -40,13 +49,13 @@ namespace AudioVisualizerPlayer.Services
         public bool IsPlaying { get; private set; }
 
         /// <summary>
-        /// Доступ к общему графу и файловому узлу — именно за это и затевался
-        /// весь рефакторинг: VisualizerService подключает свой FrameOutputNode
-        /// вторым исходящим соединением от этого же FileInput, вместо того чтобы
-        /// открывать файл заново в отдельном графе.
+        /// Доступ к общему графу и submix-узлу — VisualizerService подключает
+        /// свой FrameOutputNode вторым исходящим соединением ОТ SUBMIX-узла
+        /// (не от FileInput напрямую — см. комментарий к классу про
+        /// XAUDIO2_E_INVALID_CALL).
         /// </summary>
         public AudioGraph Graph => _graph;
-        public AudioFileInputNode FileInput => _fileInput;
+        public AudioSubmixNode Submix => _submix;
 
         public TimeSpan Position
         {
@@ -95,16 +104,22 @@ namespace AudioVisualizerPlayer.Services
 
             _fileInput = fileInputResult.FileInputNode;
 
+            // Промежуточный submix-узел — на него заводим ЕДИНСТВЕННОЕ исходящее
+            // соединение от FileInput (сам FileInput его надёжно поддерживает),
+            // а дальше уже от submix идут ДВА соединения: в динамики и в
+            // VisualizerService. Напрямую от FileInput два соединения давали
+            // XAUDIO2_E_INVALID_CALL на этом устройстве.
+            _submix = _graph.CreateSubmixNode();
+            _fileInput.AddOutgoingConnection(_submix);
+
             var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
             if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
                 throw new InvalidOperationException($"Не удалось создать вывод на устройство (граф №{_graphCreationCount} за сессию): " + deviceOutputResult.Status);
 
             _deviceOutput = deviceOutputResult.DeviceOutputNode;
 
-            // Реальный звук в динамики. VisualizerService добавит ВТОРОЕ
-            // исходящее соединение от этого же _fileInput в свой FrameOutputNode —
-            // AudioFileInputNode поддерживает несколько исходящих соединений сразу.
-            _fileInput.AddOutgoingConnection(_deviceOutput);
+            // Реальный звук в динамики — от submix, а не от FileInput напрямую.
+            _submix.AddOutgoingConnection(_deviceOutput);
 
             _fileInput.FileCompleted += (s, a) =>
             {
@@ -187,6 +202,7 @@ namespace AudioVisualizerPlayer.Services
             _graph?.Dispose();
             _graph = null;
             _fileInput = null;
+            _submix = null;
             _deviceOutput = null;
         }
     }
