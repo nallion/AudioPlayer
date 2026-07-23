@@ -245,8 +245,9 @@ namespace AudioVisualizerPlayer
                 return;
             }
 
-            // Не помещается — запускаем бесконечную бегущую строку: пауза у
-            // левого края, скролл до конца текста, пауза, скролл обратно.
+            // Не помещается — запускаем бесконечную круговую бегущую строку:
+            // пауза у начала, скролл влево до конца текста, пауза, мгновенный
+            // сброс в начало и повтор — без обратного скролла вправо.
             const double pixelsPerSecond = 40.0;
             double scrollSeconds = overflow / pixelsPerSecond;
 
@@ -256,15 +257,16 @@ namespace AudioVisualizerPlayer
 
             TimeSpan t0 = TimeSpan.Zero;
             TimeSpan t1 = TimeSpan.FromSeconds(1);                       // пауза у начала
-            TimeSpan t2 = t1 + TimeSpan.FromSeconds(scrollSeconds);       // скролл к концу
+            TimeSpan t2 = t1 + TimeSpan.FromSeconds(scrollSeconds);       // скролл влево до конца
             TimeSpan t3 = t2 + TimeSpan.FromSeconds(1);                  // пауза у конца
-            TimeSpan t4 = t3 + TimeSpan.FromSeconds(scrollSeconds);       // скролл обратно к началу
 
             timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t0, Value = 0 });
             timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t1, Value = 0 });
             timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t2, Value = -overflow });
             timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t3, Value = -overflow });
-            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t4, Value = 0 });
+            // Обратного скролла нет — RepeatBehavior.Forever сам мгновенно
+            // вернёт анимацию к первому кадру (X=0) и начнёт цикл заново,
+            // это и даёт круговой эффект вместо туда-обратно.
 
             _titleMarqueeStoryboard = new Storyboard { RepeatBehavior = RepeatBehavior.Forever };
             _titleMarqueeStoryboard.Children.Add(timeline);
