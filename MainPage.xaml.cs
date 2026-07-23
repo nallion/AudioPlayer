@@ -144,24 +144,18 @@ namespace AudioVisualizerPlayer
                 // он играет отдельно от визуализатора.
                 App.EnteredBackground += (s, a) =>
                 {
-                    _visualizer?.Dispose();
-                    _visualizer = null;
+                    // Раньше здесь был _visualizer?.Dispose() — то есть
+                    // удаление живого соединения Submix->FrameOutput прямо
+                    // из играющего графа. Судя по всему, именно это давало
+                    // гарантированные щелчки на блокировке экрана — само
+                    // соединение не самое стабильное место на этой платформе,
+                    // трогать его на живом графе лишний раз не стоит. Теперь
+                    // только флаг — топология графа не меняется вообще.
+                    if (_visualizer != null) _visualizer.IsPaused = true;
                 };
-                App.LeavingBackground += async (s, a) =>
+                App.LeavingBackground += (s, a) =>
                 {
-                    if (_trackLoaded && _visualizer == null && _playback != null)
-                    {
-                        try
-                        {
-                            _visualizer = new VisualizerService();
-                            await _visualizer.AttachToAsync(_playback);
-                            _visualizer.LevelsChanged += OnLevelsChanged;
-                        }
-                        catch
-                        {
-                            // Не критично — просто не будет визуализации, звук не пострадает.
-                        }
-                    }
+                    if (_visualizer != null) _visualizer.IsPaused = false;
                 };
 
                 // Позиция и длительность — раз в 500мс опрашиваем
