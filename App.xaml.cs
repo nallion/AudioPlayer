@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
+using AudioVisualizerPlayer.Models;
 using AudioVisualizerPlayer.Services;
 
 namespace AudioVisualizerPlayer
@@ -16,6 +18,16 @@ namespace AudioVisualizerPlayer
     public sealed partial class App : Application
     {
         public static PlaybackService Playback { get; private set; }
+
+        // Общий плейлист — доступен и MainPage, и PlaylistPage, без передачи
+        // через параметры навигации. CurrentIndex — какой трек сейчас играет.
+        public static List<PlaylistItem> CurrentPlaylist { get; } = new List<PlaylistItem>();
+        public static int CurrentPlaylistIndex { get; set; } = -1;
+
+        // Когда пользователь тапает трек на PlaylistPage, страница кладёт сюда
+        // выбранный индекс и уходит назад (GoBack) — MainPage.OnNavigatedTo
+        // подхватывает значение и запускает нужный трек.
+        public static int? RequestedPlaylistIndex { get; set; }
 
         public App()
         {

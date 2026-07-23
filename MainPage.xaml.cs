@@ -11,6 +11,7 @@ using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Shapes;
 using Windows.UI.Xaml.Navigation;
+using AudioVisualizerPlayer.Models;
 using AudioVisualizerPlayer.Services;
 
 namespace AudioVisualizerPlayer
@@ -26,13 +27,8 @@ namespace AudioVisualizerPlayer
         private Rectangle[] _barRectangles;
 
         private bool _trackLoaded = false;
+        private bool _mainPageLoadedOnce = false;
         private DispatcherTimer _positionTimer;
-
-        // Плейлист: либо один файл (выбор через "Выбрать файл"), либо все
-        // поддерживаемые аудиофайлы из папки (через "Выбрать папку").
-        // Previous/Next ходят по этому списку с закольцовкой на краях.
-        private List<StorageFile> _playlist = new List<StorageFile>();
-        private int _currentIndex = -1;
 
         // true, когда мы САМИ меняем ProgressSlider.Value из таймера позиции —
         // чтобы ProgressSlider_ValueChanged не принял это за перемотку от пользователя.
@@ -100,6 +96,14 @@ namespace AudioVisualizerPlayer
 
         private void MainPage_Loaded(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
+            // NavigationCacheMode="Enabled" переиспользует один и тот же экземпляр
+            // страницы между переходами на PlaylistPage и обратно — Loaded может
+            // сработать повторно (каждый раз, когда страница возвращается в
+            // визуальное дерево), а конструктор только один раз. Без этой защиты
+            // подписки на события ниже задвоились бы при каждом возврате.
+            if (_mainPageLoadedOnce) return;
+            _mainPageLoadedOnce = true;
+
             try
             {
                 _playback = App.Playback;
@@ -110,6 +114,23 @@ namespace AudioVisualizerPlayer
                 // переключения треков, а не два независимых пути.
                 _playback.NextRequested += async (s, a) => await PlayNextTrackAsync();
                 _playback.PreviousRequested += async (s, a) => await PlayPreviousTrackAsync();
+
+                // Автопереход к следующему треку, когда текущий доиграл сам
+                // (не пауза от пользователя). TrackEnded может прилететь не с
+                // UI-потока — маршалим через Dispatcher, т.к. дальше внутри
+                // будет трогаться UI (TrackTitleText и т.п.).
+                _playback.TrackEnded += async (s, a) =>
+                {
+                    await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
+                    {
+                        // Только если реально есть плейлист из нескольких треков —
+                        // одиночный файл просто останавливается по окончании.
+                        if (App.CurrentPlaylist.Count > 1)
+                        {
+                            await PlayNextTrackAsync();
+                        }
+                    });
+                };
 
                 // Позиция и длительность — раз в 500мс опрашиваем
                 // AudioFileInputNode.Position через PlaybackService.
@@ -122,6 +143,44 @@ namespace AudioVisualizerPlayer
                 var dialog = new Windows.UI.Popups.MessageDialog(
                     "ШАГ 0 (подписка на события PlaybackService): " + ex, "Ошибка при запуске");
                 _ = dialog.ShowAsync();
+            }
+        }
+
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
+        {
+            base.OnNavigatedTo(e);
+
+            _positionTimer?.Start();
+
+            // Возврат со страницы плейлиста с выбранным треком
+            if (App.RequestedPlaylistIndex.HasValue)
+            {
+                int index = App.RequestedPlaylistIndex.Value;
+                App.RequestedPlaylistIndex = null;
+
+                if (index >= 0 && index < App.CurrentPlaylist.Count)
+                {
+                    App.CurrentPlaylistIndex = index;
+                    await LoadAndPlayCurrentAsync();
+                }
+                return;
+            }
+
+            // Просто возврат на страницу (без выбора трека) — если трек уже
+            // играет, визуализатор был освобождён в OnNavigatedFrom и его
+            // нужно подключить заново к тому же (всё ещё играющему) графу.
+            if (_trackLoaded && _visualizer == null)
+            {
+                try
+                {
+                    _visualizer = new VisualizerService();
+                    _visualizer.AttachTo(_playback);
+                    _visualizer.LevelsChanged += OnLevelsChanged;
+                }
+                catch
+                {
+                    // Не критично — просто не будет визуализации, звук не пострадает.
+                }
             }
         }
 
@@ -144,6 +203,19 @@ namespace AudioVisualizerPlayer
         private void MenuButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
             RootSplitView.IsPaneOpen = !RootSplitView.IsPaneOpen;
+        }
+
+        private void PlaylistMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        {
+            RootSplitView.IsPaneOpen = false;
+            Frame.Navigate(typeof(PlaylistPage));
+        }
+
+        private void ShowPlaylistMenuItemIfNeeded()
+        {
+            PlaylistMenuItem.Visibility = App.CurrentPlaylist.Count > 0
+                ? Windows.UI.Xaml.Visibility.Visible
+                : Windows.UI.Xaml.Visibility.Collapsed;
         }
 
         private async void PickFileMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
@@ -171,8 +243,21 @@ namespace AudioVisualizerPlayer
 
             if (file == null) return;
 
-            _playlist = new List<StorageFile> { file };
-            _currentIndex = 0;
+            PlaylistItem item;
+            try
+            {
+                item = await BuildPlaylistItemAsync(file);
+            }
+            catch (Exception ex)
+            {
+                await new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка чтения тегов").ShowAsync();
+                return;
+            }
+
+            App.CurrentPlaylist.Clear();
+            App.CurrentPlaylist.Add(item);
+            App.CurrentPlaylistIndex = 0;
+            ShowPlaylistMenuItemIfNeeded();
 
             await LoadAndPlayCurrentAsync();
         }
@@ -210,12 +295,12 @@ namespace AudioVisualizerPlayer
                 return;
             }
 
-            var tracks = files
+            var matchedFiles = files
                 .Where(f => SupportedExtensions.Contains(System.IO.Path.GetExtension(f.Name).ToLowerInvariant()))
                 .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (tracks.Count == 0)
+            if (matchedFiles.Count == 0)
             {
                 await new Windows.UI.Popups.MessageDialog(
                     "В выбранной папке не найдено поддерживаемых аудиофайлов (.mp3, .wav, .m4a).",
@@ -223,35 +308,72 @@ namespace AudioVisualizerPlayer
                 return;
             }
 
-            _playlist = tracks;
-            _currentIndex = 0;
+            // Теги читаем один раз здесь при построении плейлиста, а не заново
+            // при каждом Next/Prev.
+            var items = new List<PlaylistItem>();
+            foreach (var f in matchedFiles)
+            {
+                try
+                {
+                    items.Add(await BuildPlaylistItemAsync(f));
+                }
+                catch
+                {
+                    // Один битый файл не должен ронять построение всего плейлиста —
+                    // просто пропускаем его.
+                }
+            }
+
+            if (items.Count == 0)
+            {
+                await new Windows.UI.Popups.MessageDialog(
+                    "Не удалось прочитать ни один из найденных файлов.", "Ошибка").ShowAsync();
+                return;
+            }
+
+            App.CurrentPlaylist.Clear();
+            App.CurrentPlaylist.AddRange(items);
+            App.CurrentPlaylistIndex = 0;
+            ShowPlaylistMenuItemIfNeeded();
 
             await LoadAndPlayCurrentAsync();
+        }
+
+        private static async Task<PlaylistItem> BuildPlaylistItemAsync(StorageFile file)
+        {
+            // Стандартный, встроенный в Windows способ чтения ID3-тегов в UWP —
+            // без сторонних библиотек, свойства читаются системным индексатором.
+            var musicProps = await file.Properties.GetMusicPropertiesAsync();
+
+            string title = string.IsNullOrWhiteSpace(musicProps.Title) ? file.DisplayName : musicProps.Title;
+            string artist = string.IsNullOrWhiteSpace(musicProps.Artist) ? file.DisplayName : musicProps.Artist;
+
+            return new PlaylistItem(file, title, artist);
         }
 
         // --- Переключение треков ---
 
         private async Task PlayNextTrackAsync()
         {
-            if (_playlist.Count == 0) return;
-            _currentIndex = (_currentIndex + 1) % _playlist.Count; // закольцовка
+            if (App.CurrentPlaylist.Count == 0) return;
+            App.CurrentPlaylistIndex = (App.CurrentPlaylistIndex + 1) % App.CurrentPlaylist.Count; // закольцовка
             await LoadAndPlayCurrentAsync();
         }
 
         private async Task PlayPreviousTrackAsync()
         {
-            if (_playlist.Count == 0) return;
-            _currentIndex = (_currentIndex - 1 + _playlist.Count) % _playlist.Count; // закольцовка
+            if (App.CurrentPlaylist.Count == 0) return;
+            App.CurrentPlaylistIndex = (App.CurrentPlaylistIndex - 1 + App.CurrentPlaylist.Count) % App.CurrentPlaylist.Count; // закольцовка
             await LoadAndPlayCurrentAsync();
         }
 
         private async Task LoadAndPlayCurrentAsync()
         {
-            if (_currentIndex < 0 || _currentIndex >= _playlist.Count) return;
+            if (App.CurrentPlaylistIndex < 0 || App.CurrentPlaylistIndex >= App.CurrentPlaylist.Count) return;
 
             try
             {
-                await LoadTrackAsync(_playlist[_currentIndex]);
+                await LoadTrackAsync(App.CurrentPlaylist[App.CurrentPlaylistIndex]);
                 _trackLoaded = true;
                 _playback.Play();
             }
@@ -262,43 +384,28 @@ namespace AudioVisualizerPlayer
         }
 
         /// <summary>
-        /// Общая логика загрузки одного файла: чтение ID3-тегов, LoadAsync
-        /// в PlaybackService, подключение визуализатора, обновление UI.
-        /// Используется и при ручном выборе файла/папки, и при Next/Prev.
+        /// Общая логика загрузки одного трека: LoadAsync в PlaybackService,
+        /// подключение визуализатора, обновление UI. Title/Artist уже
+        /// прочитаны заранее в BuildPlaylistItemAsync — здесь не перечитываем.
         /// </summary>
-        private async Task LoadTrackAsync(StorageFile file)
+        private async Task LoadTrackAsync(PlaylistItem item)
         {
             // ВАЖНО: старый VisualizerService нужно освободить ДО вызова
             // _playback.LoadAsync — тот внутри себя вызывает DisposeGraph()
             // и сносит старый AudioGraph/AudioFileInputNode ПЕРВЫМ делом при
             // загрузке нового трека. Если освобождать визуализатор ПОСЛЕ
-            // LoadAsync (как было раньше), Detach() пытается отписаться от
-            // графа, который PlaybackService уже уничтожил мгновением раньше —
-            // отсюда ObjectDisposedException при переключении на следующий трек.
+            // LoadAsync, Detach() пытается отписаться от графа, который
+            // PlaybackService уже уничтожил мгновением раньше —
+            // отсюда ObjectDisposedException при переключении треков.
             _visualizer?.Dispose();
             _visualizer = null;
 
-            string title, artist;
             try
             {
-                // Стандартный, встроенный в Windows способ чтения ID3-тегов в UWP —
-                // без сторонних библиотек, свойства читаются системным индексатором.
-                var musicProps = await file.Properties.GetMusicPropertiesAsync();
+                await _playback.LoadAsync(item.File, title: item.Title, artist: item.Artist);
 
-                title = string.IsNullOrWhiteSpace(musicProps.Title) ? file.DisplayName : musicProps.Title;
-                artist = string.IsNullOrWhiteSpace(musicProps.Artist) ? file.DisplayName : musicProps.Artist;
-            }
-            catch (Exception ex)
-            {
-                throw new Exception("Чтение ID3-тегов (" + file.Name + "): " + ex.Message, ex);
-            }
-
-            try
-            {
-                await _playback.LoadAsync(file, title: title, artist: artist);
-
-                TrackTitleText.Text = title;
-                TrackArtistText.Text = artist;
+                TrackTitleText.Text = item.Title;
+                TrackArtistText.Text = item.Artist;
 
                 // Duration доступна сразу после LoadAsync — AudioFileInputNode
                 // читает метаданные файла синхронно при создании узла.
@@ -307,7 +414,7 @@ namespace AudioVisualizerPlayer
             }
             catch (Exception ex)
             {
-                throw new Exception("_playback.LoadAsync (" + file.Name + "): " + ex.Message, ex);
+                throw new Exception("_playback.LoadAsync (" + item.File.Name + "): " + ex.Message, ex);
             }
 
             try
@@ -322,7 +429,7 @@ namespace AudioVisualizerPlayer
             }
             catch (Exception ex)
             {
-                throw new Exception("VisualizerService.AttachTo (" + file.Name + "): " + ex.Message, ex);
+                throw new Exception("VisualizerService.AttachTo (" + item.File.Name + "): " + ex.Message, ex);
             }
         }
 
@@ -395,9 +502,12 @@ namespace AudioVisualizerPlayer
             base.OnNavigatedFrom(e);
             _positionTimer?.Stop();
             // Освобождаем анализирующее соединение при уходе со страницы —
-            // визуализация не нужна в фоне, а звук продолжит играть через
-            // _playback, который живёт в App.
+            // визуализация не нужна, пока не видно MainPage (например, ушли
+            // на PlaylistPage). Звук продолжит играть через _playback,
+            // который живёт в App. При возврате (OnNavigatedTo) подключаем
+            // визуализатор заново.
             _visualizer?.Dispose();
+            _visualizer = null;
         }
     }
 }

@@ -56,6 +56,10 @@ namespace AudioVisualizerPlayer.Services
 
         public TimeSpan Duration => _fileInput?.Duration ?? TimeSpan.Zero;
 
+        /// <summary>Файл доиграл до конца сам (не пауза от пользователя) — сюда
+        /// подписывается MainPage для автоперехода к следующему треку.</summary>
+        public event EventHandler TrackEnded;
+
         public PlaybackService()
         {
             Smtc = SystemMediaTransportControls.GetForCurrentView();
@@ -103,6 +107,7 @@ namespace AudioVisualizerPlayer.Services
             {
                 IsPlaying = false;
                 PlaybackStateChanged?.Invoke(this, false);
+                TrackEnded?.Invoke(this, EventArgs.Empty);
             };
 
             var updater = Smtc.DisplayUpdater;
