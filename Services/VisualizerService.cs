@@ -40,9 +40,9 @@ namespace AudioVisualizerPlayer.Services
         /// Подключается к уже загруженному треку в PlaybackService — второе
         /// исходящее соединение от того же AudioFileInputNode, что играет звук.
         /// </summary>
-        public void AttachTo(PlaybackService playback)
+        public async System.Threading.Tasks.Task AttachToAsync(PlaybackService playback)
         {
-            Diag.Log("VisualizerService.AttachTo вызван");
+            Diag.Log("VisualizerService.AttachToAsync вызван");
             Detach();
 
             _graph = playback.Graph;
@@ -53,12 +53,7 @@ namespace AudioVisualizerPlayer.Services
             {
                 // Явно запрашиваем тот же формат, что согласовал весь граф
                 // (_graph.EncodingProperties), а не дефолтный формат
-                // CreateFrameOutputNode() без параметров. Судя по логам,
-                // граф при подключённых наушниках согласовывает формат под
-                // конкретное устройство, а параметрless FrameOutputNode
-                // получает какой-то другой формат по умолчанию — несовпадение
-                // и давало XAUDIO2_E_INVALID_CALL именно на этом соединении
-                // (само создание узла проходило, падало только подключение).
+                // CreateFrameOutputNode() без параметров.
                 _frameOutput = _graph.CreateFrameOutputNode(_graph.EncodingProperties);
                 Diag.Log("  CreateFrameOutputNode(с форматом графа) — успех");
             }
@@ -68,17 +63,38 @@ namespace AudioVisualizerPlayer.Services
                 throw new Exception($"AttachTo ШАГ A (CreateFrameOutputNode), успешных AttachTo до этого за сессию: {_attachToSuccessCount}: " + ex.Message, ex);
             }
 
-            try
+            // По логам видно: одно и то же соединение Submix -> FrameOutput
+            // иногда падает, иногда сразу срабатывает для ОДНОГО И ТОГО ЖЕ
+            // файла/условий — то есть это гонка по времени (драйверу нужен
+            // короткий момент "устаканиться" после первого соединения
+            // Submix -> DeviceOutput), а не жёсткая несовместимость форматов.
+            // Лечим повтором с паузой, как раньше делали для DeviceOutput.
+            Exception lastError = null;
+            for (int attempt = 1; attempt <= 4; attempt++)
             {
-                // От Submix, а не от FileInput напрямую — см. комментарий
-                // в PlaybackService про XAUDIO2_E_INVALID_CALL.
-                playback.Submix.AddOutgoingConnection(_frameOutput);
-                Diag.Log("  Submix -> FrameOutput подключено — успех");
+                try
+                {
+                    // От Submix, а не от FileInput напрямую — см. комментарий
+                    // в PlaybackService про XAUDIO2_E_INVALID_CALL.
+                    playback.Submix.AddOutgoingConnection(_frameOutput);
+                    Diag.Log($"  Submix -> FrameOutput подключено — успех (попытка {attempt})");
+                    lastError = null;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                    Diag.Log($"  Submix -> FrameOutput — ОШИБКА (попытка {attempt}): {ex}");
+                    if (attempt < 4)
+                    {
+                        await System.Threading.Tasks.Task.Delay(150);
+                    }
+                }
             }
-            catch (Exception ex)
+
+            if (lastError != null)
             {
-                Diag.Log("  Submix -> FrameOutput — ОШИБКА: " + ex);
-                throw new Exception($"AttachTo ШАГ B (AddOutgoingConnection), успешных AttachTo до этого за сессию: {_attachToSuccessCount}: " + ex.Message, ex);
+                throw new Exception($"AttachTo ШАГ B (AddOutgoingConnection) после 4 попыток, успешных AttachTo до этого за сессию: {_attachToSuccessCount}: " + lastError.Message, lastError);
             }
 
             _graph.QuantumStarted += OnQuantumStarted;

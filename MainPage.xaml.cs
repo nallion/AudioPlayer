@@ -176,7 +176,7 @@ namespace AudioVisualizerPlayer
                 try
                 {
                     _visualizer = new VisualizerService();
-                    _visualizer.AttachTo(_playback);
+                    await _visualizer.AttachToAsync(_playback);
                     _visualizer.LevelsChanged += OnLevelsChanged;
                 }
                 catch
@@ -518,7 +518,7 @@ namespace AudioVisualizerPlayer
             try
             {
                 _visualizer = new VisualizerService();
-                _visualizer.AttachTo(_playback);
+                await _visualizer.AttachToAsync(_playback);
                 _visualizer.LevelsChanged += OnLevelsChanged;
                 // Отдельного Start()/Stop() у визуализатора нет — он просто
                 // подключён вторым выходом к общему AudioGraph и получает кадры
