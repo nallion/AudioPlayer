@@ -83,11 +83,11 @@ namespace AudioVisualizerPlayer
         {
             try
             {
-                // Плеер создаём один раз за всё время жизни процесса
-                if (Playback == null)
-                {
-                    Playback = new PlaybackService();
-                }
+                // ДИАГНОСТИЧЕСКАЯ ВЕРСИЯ: PlaybackService (MediaPlayer/SMTC) временно
+                // не создаётся — проверяем, стартует ли вообще голый Hello World
+                // без него. Если да — проблема в PlaybackService/MediaPlayer или
+                // VisualizerService. Если нет — проблема глубже, в самой
+                // инфраструктуре сборки/пакета.
 
                 Frame rootFrame = Window.Current.Content as Frame;
 
@@ -110,8 +110,8 @@ namespace AudioVisualizerPlayer
             catch (Exception ex)
             {
                 // Тот же приём: обычный try/catch, а не только событийный
-                // UnhandledException — на случай если PlaybackService/MediaPlayer
-                // валится именно здесь, до того как открылась MainPage.
+                // UnhandledException — на случай если что-то валится именно здесь,
+                // до того как открылась MainPage.
                 WriteCrashLogSync(ex.ToString());
                 throw;
             }
