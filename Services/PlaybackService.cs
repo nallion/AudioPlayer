@@ -223,6 +223,16 @@ namespace AudioVisualizerPlayer.Services
                 settings.EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm((uint)sampleRate.Value, 2, 16);
             }
 
+            // Явно просим больший квант вместо системного значения по
+            // умолчанию (обычно ~10мс) — больше запаса "прочности" в буфере
+            // на случай, если что-то в моменте (GC, планировщик потоков,
+            // фоновая работа ОС) отняло CPU чуть дольше обычного. Плеер
+            // музыки не чувствителен к небольшой лишней задержке (в отличие,
+            // скажем, от игры), а вот щелчки от нехватки буфера — заметны.
+            // 960 сэмплов при 48000Гц ≈ 20мс, вдвое больше типичного дефолта.
+            settings.QuantumSizeSelectionMode = QuantumSizeSelectionMode.ClosestToDesired;
+            settings.DesiredSamplesPerQuantum = 960;
+
             // PrimaryRenderDevice намеренно НЕ задаём автоматически: это
             // свойство жёстко привязывает граф к конкретному устройству
             // НАВСЕГДА, отключая динамическое автослежение — даже если
