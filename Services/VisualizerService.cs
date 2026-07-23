@@ -29,6 +29,8 @@ namespace AudioVisualizerPlayer.Services
 
         public async Task InitializeAsync(StorageFile file)
         {
+            WriteDiagnostics("InitializeAsync начат. Файл: " + file.Name);
+
             var settings = new AudioGraphSettings(AudioRenderCategory.Media)
             {
                 QuantumSizeSelectionMode = QuantumSizeSelectionMode.LowestLatency
@@ -36,13 +38,21 @@ namespace AudioVisualizerPlayer.Services
 
             var graphResult = await AudioGraph.CreateAsync(settings);
             if (graphResult.Status != AudioGraphCreationStatus.Success)
+            {
+                WriteDiagnostics("AudioGraph.CreateAsync провалился: " + graphResult.Status);
                 throw new InvalidOperationException("Не удалось создать AudioGraph: " + graphResult.Status);
+            }
+            WriteDiagnostics("AudioGraph создан успешно.");
 
             _graph = graphResult.Graph;
 
             var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
             if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
+            {
+                WriteDiagnostics("CreateFileInputNodeAsync провалился: " + fileInputResult.Status);
                 throw new InvalidOperationException("Не удалось открыть файл для анализа: " + fileInputResult.Status);
+            }
+            WriteDiagnostics("AudioFileInputNode создан успешно. Duration: " + fileInputResult.FileInputNode.Duration);
 
             _fileInput = fileInputResult.FileInputNode;
 
@@ -53,25 +63,88 @@ namespace AudioVisualizerPlayer.Services
             _fileInput.AddOutgoingConnection(_frameOutput);
 
             _graph.QuantumStarted += OnQuantumStarted;
+            WriteDiagnostics("InitializeAsync завершён успешно, QuantumStarted подписан.");
         }
 
-        public void Start() => _graph?.Start();
+        public void Start()
+        {
+            // Пишем синхронно, прямо здесь — раньше запись была через
+            // System.Threading.Timer (колбэк на потоке из thread pool), и даже
+            // диагностический файл не появился ни разу. Возможно, запись файлов
+            // именно с такого потока в этом приложении ведёт себя иначе, чем
+            // с UI-потока (где crash.log записывался нормально). Start() вызывается
+            // из LoadDemoTrackAsync на UI-потоке — пишем прямо тут, синхронно,
+            // без промежуточных потоков.
+            WriteDiagnostics("Start() вызван. _graph == null: " + (_graph == null));
+
+            try
+            {
+                _graph?.Start();
+                WriteDiagnostics("_graph.Start() выполнен без исключений.");
+            }
+            catch (Exception ex)
+            {
+                WriteDiagnostics("_graph.Start() бросил исключение: " + ex);
+            }
+        }
+
         public void Stop() => _graph?.Stop();
+
+        private static int _quantumCount = 0;
+        private static bool _firstQuantumLogged = false;
+
+        private static void WriteDiagnostics(string text)
+        {
+            try
+            {
+                var folder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                var path = System.IO.Path.Combine(folder.Path, "visualizer_diagnostics.log");
+                // Дописываем, а не перезаписываем — так видно всю последовательность событий.
+                System.IO.File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss.fff") + "  " + text + "\n");
+            }
+            catch
+            {
+                // Если и это не работает — значит, дело не в потоке, а в чём-то ещё;
+                // тогда единственный способ узнать причину — RDP/полный дамп.
+            }
+        }
 
         private void OnQuantumStarted(AudioGraph sender, object args)
         {
-            Windows.Media.AudioFrame frame = _frameOutput.GetFrame();
-            float[] samples = ExtractSamples(frame);
-            if (samples == null || samples.Length < FftSize) return;
+            if (!_firstQuantumLogged)
+            {
+                _firstQuantumLogged = true;
+                WriteDiagnostics("QuantumStarted сработал впервые.");
+            }
 
-            // Берём последний блок нужного размера
-            var chunk = new float[FftSize];
-            Array.Copy(samples, samples.Length - FftSize, chunk, 0, FftSize);
+            try
+            {
+                System.Threading.Interlocked.Increment(ref _quantumCount);
 
-            Complex[] spectrum = FFT.Transform(chunk);
-            float[] bars = FFT.ToBars(spectrum, BarCount);
+                Windows.Media.AudioFrame frame = _frameOutput.GetFrame();
+                float[] samples = ExtractSamples(frame);
+                if (samples == null || samples.Length < FftSize) return;
 
-            LevelsChanged?.Invoke(this, bars);
+                // Берём последний блок нужного размера
+                var chunk = new float[FftSize];
+                Array.Copy(samples, samples.Length - FftSize, chunk, 0, FftSize);
+
+                Complex[] spectrum = FFT.Transform(chunk);
+                float[] bars = FFT.ToBars(spectrum, BarCount);
+
+                LevelsChanged?.Invoke(this, bars);
+            }
+            catch (Exception ex)
+            {
+                // OnQuantumStarted вызывается из нативного audio-callback потока —
+                // необработанное исключение здесь может тихо проглатываться самим
+                // AudioGraph, никак не долетая ни до try/catch в UI-коде, ни до
+                // Application.UnhandledException.
+                if (_quantumCount <= 3) // логируем первые несколько, не заваливая лог
+                {
+                    WriteDiagnostics("OnQuantumStarted бросил исключение: " + ex);
+                }
+            }
         }
 
         private unsafe float[] ExtractSamples(Windows.Media.AudioFrame frame)
