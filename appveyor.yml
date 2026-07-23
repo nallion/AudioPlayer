@@ -5,67 +5,26 @@ version: 1.0.{build}
 # (Projects → New Project → GitHub → nallion/AudioPlayer),
 # клонирование настраивать здесь НЕ нужно — AppVeyor сам клонирует
 # репозиторий, привязанный к проекту, при каждом пуше/PR по вебхуку.
-# clone_depth просто ускоряет чек-аут, не тянет полную историю.
 clone_depth: 5
 
-# Явный clone_script нужен только если проект подключён как
-# "Generic Git" (без GitHub webhook) — тогда AppVeyor не знает URL
-# репозитория сам, и его нужно прописать вручную. Если у тебя уже
-# есть привязка к GitHub в настройках проекта — этот блок можно
-# закомментировать/удалить, он не обязателен.
-# clone_script:
-#   - cmd: git clone -q --depth=5 https://github.com/nallion/AudioPlayer.git %APPVEYOR_BUILD_FOLDER%
-#   - cmd: cd %APPVEYOR_BUILD_FOLDER% && git checkout -qf %APPVEYOR_REPO_COMMIT%
-
 # UWP собирается только на Windows-образах с установленным Windows 10 SDK.
-# На образе VS2017 доступен Windows 10 SDK максимум 10.0.17763 (Fall Creators/April
-# Update поколение) — MSBuild там тоже 15.x, а не 16.x, как на VS2019.
-# Из-за этого TargetFramework/TargetPlatformVersion в .csproj и манифесте
-# ограничены 10.0.17763, иначе сборка упадёт с "SDK not found".
 image: Visual Studio 2017
 
-# Раскомментируй, если понадобится зайти на билд-агент по RDP и разобраться
-# руками с недостающим SDK-компонентом — AppVeyor выведет IP/логин/пароль
-# в интерфейсе после старта сборки и будет ждать подключения.
-# init:
-#   - ps: iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
-
-# Матрица платформ — под Windows Phone/Mobile ARM интересен, но обычно
-# в CI достаточно x86/x64/ARM для проверки, что решение собирается.
-# Собираем только под ARM в конфигурации Release — остальные платформы/конфигурации
-# исключены из матрицы, а не просто отфильтрованы через exclude, чтобы не тратить
-# минуты CI на восстановление и компиляцию под x86/x64/Debug.
 platform:
   - ARM
 
 configuration:
   - Release
 
-install:
-  # -PackagesDirectory фиксирует путь установки явно: без этого флага разные
-  # версии nuget.exe на разных образах могут класть пакеты для packages.config
-  # либо в "packages\" рядом с .sln (как ожидает наш .csproj), либо в глобальный
-  # кэш %userprofile%\.nuget\packages — и Import в csproj их не найдёт.
-  - cmd: nuget restore AudioVisualizerPlayer.sln -PackagesDirectory packages
-
 before_build:
-  - cmd: nuget restore AudioVisualizerPlayer.sln -PackagesDirectory packages
-  # Диагностика: если Import снова не найдёт .targets, в логе сразу будет видно,
-  # что реально лежит в packages\ и под какой версией — сверяем с packages.config.
-  - cmd: if exist "packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14" (dir /s /b packages\Microsoft.NETCore.UniversalWindowsPlatform.6.2.14) else (echo UniversalWindowsPlatform package NOT restored)
-  - cmd: if exist "packages\Win2D.uwp.1.25.0" (dir /s /b packages\Win2D.uwp.1.25.0) else (echo Win2D.uwp package NOT restored)
-  # ВАЖНО: сам NuGet-пакет Microsoft.NETCore.UniversalWindowsPlatform не содержит
-  # facade-сборок (System.Runtime.dll и т.п.) — они должны стоять на машине вместе
-  # с компонентом Windows 10 SDK / "Universal Windows Platform tools". Проверяем,
-  # установлена ли нужная папка с facade-сборками для .NETCore.
-  - cmd: if exist "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1" (echo FOUND .NETCore v4.5.1 facades && dir "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETCore\v4.5.1") else (echo MISSING .NETCore v4.5.1 facade folder)
-  - cmd: if exist "C:\Program Files (x86)\Windows Kits\10\References" (dir "C:\Program Files (x86)\Windows Kits\10\References") else (echo MISSING Windows Kits 10 References folder)
-  - cmd: if exist "C:\Program Files (x86)\Windows Kits\10\bin" (dir "C:\Program Files (x86)\Windows Kits\10\bin") else (echo MISSING Windows Kits 10 bin folder)
-  - cmd: for /r "C:\Program Files (x86)\Windows Kits\10\bin" %%f in (makeappx.exe) do @echo FOUND makeappx at %%f
+  # PackageReference вместо packages.config — обычный nuget restore прекрасно
+  # с этим справляется сам, без -PackagesDirectory и без ручных проверок
+  # facade-папок: NuGet сам генерирует obj\*.csproj.nuget.g.targets/.props
+  # с правильными, корректно разделёнными compile-time/runtime зависимостями.
+  - cmd: nuget restore AudioVisualizerPlayer.sln
 
 build:
   project: AudioVisualizerPlayer.sln
-  parallel: true
   verbosity: minimal
 
 build_script:
@@ -73,58 +32,24 @@ build_script:
       msbuild AudioVisualizerPlayer.sln
       /p:Configuration=%CONFIGURATION%
       /p:Platform=%PLATFORM%
-      /p:AppxBundlePlatforms="%PLATFORM%"
-      /p:AppxBundle=Never
-      /p:UapAppxPackageBuildMode=SideloadOnly
-      /p:AppxPackageSigningEnabled=false
       /verbosity:minimal
 
-# Без .NET Native (UseDotNetNativeToolchain=false) MSBuild сам собирает
-# классический .appx напрямую (см. AppPackages\..._Test\...ARM.appx).
-after_build:
-  # ПРИЧИНА КРАША НА УСТРОЙСТВЕ (найдено по минидампу): в собранный .appx
-  # попадают ~150 facade/reference-сборок из ref\uap10.0.15138\, которые мы
-  # раньше добавили в .csproj только для того, чтобы компилятор мог резолвить
-  # типы (WMC1006/CS0246 и т.п.). Это compile-time заглушки без реального IL —
-  # <Private>False</Private> для UWP-упаковки игнорируется, и они всё равно
-  # копируются в пакет, перекрывая собой настоящие реализации из
-  # Microsoft.NET.CoreRuntime. CoreCLR при старте резолвит System.Runtime
-  # первым делом, находит нашу заглушку раньше настоящей сборки — и падает
-  # с FileLoadException (HRESULT 0x80131040) ещё до старта managed-кода,
-  # поэтому ни try/catch, ни UnhandledException это не ловят.
-  # Чиним так же, как раньше чинили msix→appx: распаковываем готовый .appx,
-  # вычищаем все facade-DLL по списку, запаковываем обратно.
-  - cmd: >-
-      "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x86\makeappx.exe"
-      unpack /p "AppPackages\AudioVisualizerPlayer_1.0.0.0_%PLATFORM%_Test\AudioVisualizerPlayer_1.0.0.0_%PLATFORM%.appx"
-      /d unpacked_appx /o
-  - cmd: >-
-      for /f "usebackq delims=" %%f in ("facade_dlls_to_strip.txt") do
-      if exist "unpacked_appx\%%f" del "unpacked_appx\%%f"
-  - cmd: >-
-      "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x86\makeappx.exe"
-      pack /d unpacked_appx
-      /p AudioVisualizerPlayer_1.0.0.0_%PLATFORM%_clean.appx /o
-
-# Складываем готовые пакеты, если понадобится скачать артефакт для ручной
-# установки на устройство. Современный MSBuild с этими настройками собирает
-# .msix (а не .appx/.appxbundle, хотя мы их тоже оставляем на случай других SDK).
+# Автоподпись пакета тестовым сертификатом (CN=DevCert, совпадает с Publisher
+# в Package.appxmanifest) теперь делает сам .csproj — таргет AutoSignAppx.
+# Никакого ручного unpack/pack .appx и вычищения facade-сборок больше не
+# нужно: PackageReference с самого начала не тянет их в пакет.
 artifacts:
-  - path: '**\*.msix'
-    name: msix
   - path: '**\*.appx'
     name: appx
   - path: '**\*.appxbundle'
     name: appxbundle
   - path: '**\*.appxupload'
     name: appxupload
-  - path: '**\*.msixbundle'
-    name: msixbundle
 
 # ARM-сборка не запускается на CI-раннере, только компилируется —
 # юнит-тестов в проекте пока нет, поэтому тестовый шаг не настроен.
 test: off
 
-# Кэшируем NuGet-пакеты между сборками, чтобы не тянуть Win2D каждый раз заново
+# Кэшируем NuGet-пакеты между сборками
 cache:
-  - packages -> **\packages.config, AudioVisualizerPlayer.csproj
+  - packages -> AudioVisualizerPlayer.csproj
