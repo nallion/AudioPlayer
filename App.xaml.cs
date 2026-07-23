@@ -31,6 +31,17 @@ namespace AudioVisualizerPlayer
         // подхватывает значение и запускает нужный трек.
         public static int? RequestedPlaylistIndex { get; set; }
 
+        /// <summary>
+        /// Приложение ушло в фон (экран заблокирован/свёрнуто) — звук продолжает
+        /// играть (backgroundMediaPlayback), но визуализатор никто не видит.
+        /// MainPage подписывается и останавливает VisualizerService на это
+        /// время — иначе FFT на фоновом потоке продолжает грузить CPU в
+        /// урезанном фоновом состоянии процесса, что может провоцировать
+        /// подглючивания звука именно в момент блокировки экрана.
+        /// </summary>
+        public static event EventHandler EnteredBackground;
+        public static event EventHandler LeavingBackground;
+
         // Эквалайзер: 5 полос (см. PlaybackService.EqualizerFrequencies),
         // значения в дБ, диапазон обычно -15..+15. Общий массив — доступен и
         // PlaybackService (пересоздаёт полосы с этими значениями при каждой
@@ -184,6 +195,23 @@ namespace AudioVisualizerPlayer
                             rootFrame.CanGoBack
                                 ? Windows.UI.Core.AppViewBackButtonVisibility.Visible
                                 : Windows.UI.Core.AppViewBackButtonVisibility.Collapsed;
+                    };
+
+                    // Экран заблокирован/приложение свёрнуто — звук продолжает
+                    // играть, но подписчики (MainPage) должны отключить
+                    // VisualizerService на это время (см. EnteredBackground/
+                    // LeavingBackground выше).
+                    Windows.ApplicationModel.Core.CoreApplication.EnteredBackground += (s, args) =>
+                    {
+                        var deferral = args.GetDeferral();
+                        EnteredBackground?.Invoke(this, EventArgs.Empty);
+                        deferral.Complete();
+                    };
+                    Windows.ApplicationModel.Core.CoreApplication.LeavingBackground += (s, args) =>
+                    {
+                        var deferral = args.GetDeferral();
+                        LeavingBackground?.Invoke(this, EventArgs.Empty);
+                        deferral.Complete();
                     };
                 }
 

@@ -135,6 +135,35 @@ namespace AudioVisualizerPlayer
                     });
                 };
 
+                // Экран заблокирован/приложение свёрнуто — визуализатор
+                // никто не видит, а его фоновый FFT (Task.Run) продолжает
+                // грузить CPU в урезанном фоновом состоянии процесса, что
+                // может провоцировать подглючивания звука именно в момент
+                // блокировки. Отключаем визуализатор на это время и
+                // подключаем заново при возврате — звук не затрагивается,
+                // он играет отдельно от визуализатора.
+                App.EnteredBackground += (s, a) =>
+                {
+                    _visualizer?.Dispose();
+                    _visualizer = null;
+                };
+                App.LeavingBackground += async (s, a) =>
+                {
+                    if (_trackLoaded && _visualizer == null && _playback != null)
+                    {
+                        try
+                        {
+                            _visualizer = new VisualizerService();
+                            await _visualizer.AttachToAsync(_playback);
+                            _visualizer.LevelsChanged += OnLevelsChanged;
+                        }
+                        catch
+                        {
+                            // Не критично — просто не будет визуализации, звук не пострадает.
+                        }
+                    }
+                };
+
                 // Позиция и длительность — раз в 500мс опрашиваем
                 // AudioFileInputNode.Position через PlaybackService.
                 _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
