@@ -128,11 +128,19 @@ namespace AudioVisualizerPlayer.Services
         private volatile bool _isProcessingFft = false;
         private bool _skipThisQuantum = false;
 
+        private int _quantumCallCount = 0;
+
         private void OnQuantumStarted(AudioGraph sender, object args)
         {
             try
             {
                 if (IsPaused) return;
+
+                _quantumCallCount++;
+                if (_quantumCallCount % 50 == 0) // heartbeat раз в ~5 секунд — видно, вызывается ли callback вообще
+                {
+                    Diag.Log($"OnQuantumStarted: heartbeat, вызовов={_quantumCallCount}");
+                }
 
                 Windows.Media.AudioFrame frame = _frameOutput.GetFrame();
                 int sampleCount = ExtractSamplesInto(frame, ref _extractScratch);
@@ -164,9 +172,12 @@ namespace AudioVisualizerPlayer.Services
                         NormalizeWithAgc(bars);
                         LevelsChanged?.Invoke(this, bars);
                     }
-                    catch
+                    catch (Exception exInner)
                     {
-                        // Ошибка в расчёте — просто пропускаем этот кадр визуализации.
+                        // Раньше молча проглатывалось — теперь логируем, чтобы
+                        // увидеть, не здесь ли причина "визуализатор умирает
+                        // через N секунд".
+                        Diag.Log("OnQuantumStarted (фон, расчёт FFT): ОШИБКА: " + exInner);
                     }
                     finally
                     {
@@ -174,11 +185,10 @@ namespace AudioVisualizerPlayer.Services
                     }
                 });
             }
-            catch
+            catch (Exception ex)
             {
-                // Callback независимого графа-анализатора — необработанное
-                // исключение здесь не может повлиять на реальный звук
-                // (он идёт через MediaPlayer, полностью отдельно).
+                // Раньше молча проглатывалось — теперь логируем.
+                Diag.Log("OnQuantumStarted: ОШИБКА: " + ex);
             }
         }
 
