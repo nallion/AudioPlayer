@@ -176,7 +176,7 @@ namespace AudioVisualizerPlayer
                 // заранее (с запасом), до того как она успеет "умереть" сама.
                 // Звук (MediaPlayer) это не задевает — независимый пайплайн.
                 _visualizerRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
-                _visualizerRefreshTimer.Tick += async (timerSender, timerArgs) => await RefreshVisualizerAsync();
+                _visualizerRefreshTimer.Tick += async (timerSender, timerArgs) => await RefreshVisualizerAsync(resyncToCurrentPosition: false);
                 _visualizerRefreshTimer.Start();
 
                 // Позиция и длительность — раз в 500мс опрашиваем
@@ -535,7 +535,18 @@ namespace AudioVisualizerPlayer
         /// обновляем заранее, с запасом), и потенциально где-то ещё в будущем.
         /// Звук (MediaPlayer) это никак не задевает — независимый пайплайн.
         /// </summary>
-        private async Task RefreshVisualizerAsync()
+        /// <param name="resyncToCurrentPosition">
+        /// true — перематывает свежий граф на текущую позицию плеера (нужно
+        /// после фона/навигации, где реально накопился дрейф). false —
+        /// ДИАГНОСТИЧЕСКИЙ режим для планового 8-секундного обновления:
+        /// НЕ дёргает Seek() вообще, свежий граф просто играет с начала файла.
+        /// Проверяем гипотезу, что именно повторяющийся Seek() в позицию
+        /// ближе к концу файла (после ~50%) — причина повторяющихся затуханий,
+        /// а не просто время жизни декодирующей сессии само по себе. Визуализация
+        /// временно разъедется с реальной позицией — это ожидаемая, осознанная
+        /// цена именно этого диагностического теста, не постоянное решение.
+        /// </param>
+        private async Task RefreshVisualizerAsync(bool resyncToCurrentPosition = true)
         {
             if (!_trackLoaded || App.CurrentPlaylistIndex < 0 || App.CurrentPlaylistIndex >= App.CurrentPlaylist.Count)
                 return;
@@ -550,7 +561,14 @@ namespace AudioVisualizerPlayer
                 _visualizer.LevelsChanged += OnLevelsChanged;
                 if (_playback.IsPlaying)
                 {
-                    _visualizer.Start(_playback.Position);
+                    if (resyncToCurrentPosition)
+                    {
+                        _visualizer.Start(_playback.Position);
+                    }
+                    else
+                    {
+                        _visualizer.Start(); // без Seek — играет с начала свежего графа
+                    }
                 }
 
                 // Сбрасываем фазу периодического таймера — "следующее
