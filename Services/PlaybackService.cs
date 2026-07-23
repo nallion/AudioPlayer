@@ -90,7 +90,18 @@ namespace AudioVisualizerPlayer.Services
             // Освобождаем предыдущий граф, если уже что-то играло
             DisposeGraph();
 
-            var settings = new AudioGraphSettings(AudioRenderCategory.Media);
+            // Явно задаём стандартный PCM-формат (44100Гц, стерео, 16 бит)
+            // вместо авто-согласования с текущим устройством по умолчанию.
+            // Гипотеза: авто-выбор формата при создании НОВОГО графа, когда
+            // наушники уже являются устройством по умолчанию, договаривается
+            // о чём-то несовместимом на этом железе — отсюда стабильный
+            // XAUDIO2_E_INVALID_CALL именно при холодном старте с уже
+            // подключёнными наушниками (перемаршрутизация уже играющего
+            // потока идёт другим путём в ОС и эту проблему не задевает).
+            var settings = new AudioGraphSettings(AudioRenderCategory.Media)
+            {
+                EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(44100, 2, 16)
+            };
             var graphResult = await AudioGraph.CreateAsync(settings);
             if (graphResult.Status != AudioGraphCreationStatus.Success)
                 throw new InvalidOperationException($"Не удалось создать AudioGraph (это граф №{_graphCreationCount + 1} за сессию): " + graphResult.Status);
