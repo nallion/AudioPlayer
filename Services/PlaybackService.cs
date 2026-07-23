@@ -263,9 +263,38 @@ namespace AudioVisualizerPlayer.Services
                     double gain = (App.EqualizerGainsDb != null && i < App.EqualizerGainsDb.Length)
                         ? App.EqualizerGainsDb[i] : 0.0;
                     var band = _equalizer.Bands[i];
-                    band.FrequencyCenter = (float)EqualizerFrequencies[i];
-                    band.Bandwidth = (float)EqualizerBandwidths[i];
-                    band.Gain = (float)gain;
+
+                    try
+                    {
+                        band.FrequencyCenter = (float)EqualizerFrequencies[i];
+                    }
+                    catch (Exception exFreq)
+                    {
+                        AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: FrequencyCenter={EqualizerFrequencies[i]} — ОШИБКА: {exFreq.Message}");
+                        throw;
+                    }
+
+                    try
+                    {
+                        band.Bandwidth = (float)EqualizerBandwidths[i];
+                    }
+                    catch (Exception exBw)
+                    {
+                        AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: Bandwidth={EqualizerBandwidths[i]} — ОШИБКА: {exBw.Message}");
+                        throw;
+                    }
+
+                    try
+                    {
+                        band.Gain = (float)gain;
+                    }
+                    catch (Exception exGain)
+                    {
+                        AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: Gain={gain} — ОШИБКА: {exGain.Message}");
+                        throw;
+                    }
+
+                    AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: FrequencyCenter={EqualizerFrequencies[i]}, Bandwidth={EqualizerBandwidths[i]}, Gain={gain} — все три применены успешно");
                     _equalizerBands[i] = band;
                 }
                 _submix.EffectDefinitions.Add(_equalizer);
