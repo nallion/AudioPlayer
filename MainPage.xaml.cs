@@ -11,7 +11,6 @@ using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Shapes;
 using Windows.UI.Xaml.Navigation;
-using AudioVisualizerPlayer.Helpers;
 using AudioVisualizerPlayer.Models;
 using AudioVisualizerPlayer.Services;
 
@@ -150,7 +149,6 @@ namespace AudioVisualizerPlayer
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
-            Diag.Log("MainPage.OnNavigatedTo: начало");
 
             _positionTimer?.Start();
 
@@ -159,18 +157,14 @@ namespace AudioVisualizerPlayer
             {
                 int index = App.RequestedPlaylistIndex.Value;
                 App.RequestedPlaylistIndex = null;
-                Diag.Log($"MainPage.OnNavigatedTo: RequestedPlaylistIndex={index}");
 
                 if (index >= 0 && index < App.CurrentPlaylist.Count)
                 {
                     App.CurrentPlaylistIndex = index;
-                    Diag.Log("MainPage.OnNavigatedTo: перед LoadAndPlayCurrentAsync()");
                     await LoadAndPlayCurrentAsync();
-                    Diag.Log("MainPage.OnNavigatedTo: после LoadAndPlayCurrentAsync() — готово");
                 }
                 return;
             }
-            Diag.Log("MainPage.OnNavigatedTo: RequestedPlaylistIndex не установлен, обычный возврат");
 
             // Просто возврат на страницу (без выбора трека) — если трек уже
             // играет, визуализатор был освобождён в OnNavigatedFrom и его
@@ -190,22 +184,8 @@ namespace AudioVisualizerPlayer
             }
         }
 
-        private int _tickCounter = 0;
-
         private void PositionTimer_Tick(object sender, object e)
         {
-            // Heartbeat: если эта строка продолжает писаться даже во время
-            // "зависшего" интерфейса — значит UI-поток на самом деле жив и
-            // диспетчер разгребает очередь, просто что-то на уровне
-            // ввода/визуального дерева перестало пропускать касания. Если
-            // heartbeat тоже останавливается ровно в момент зависания —
-            // значит, это настоящий deadlock UI-потока.
-            _tickCounter++;
-            if (_tickCounter % 10 == 0) // раз в ~5 секунд, не заваливаем лог
-            {
-                Diag.Log($"HEARTBEAT: тик #{_tickCounter}, UI-поток жив, _trackLoaded={_trackLoaded}");
-            }
-
             if (_playback == null || !_trackLoaded) return;
 
             _isProgrammaticSliderUpdate = true;
@@ -398,21 +378,16 @@ namespace AudioVisualizerPlayer
 
         private async Task LoadAndPlayCurrentAsync()
         {
-            Diag.Log($"LoadAndPlayCurrentAsync: начало, CurrentPlaylistIndex={App.CurrentPlaylistIndex}, Count={App.CurrentPlaylist.Count}");
             if (App.CurrentPlaylistIndex < 0 || App.CurrentPlaylistIndex >= App.CurrentPlaylist.Count) return;
 
             try
             {
-                Diag.Log("LoadAndPlayCurrentAsync: перед LoadTrackAsync");
                 await LoadTrackAsync(App.CurrentPlaylist[App.CurrentPlaylistIndex]);
-                Diag.Log("LoadAndPlayCurrentAsync: после LoadTrackAsync, перед _playback.Play()");
                 _trackLoaded = true;
                 _playback.Play();
-                Diag.Log("LoadAndPlayCurrentAsync: после _playback.Play() — готово");
             }
             catch (Exception ex)
             {
-                Diag.Log("LoadAndPlayCurrentAsync: ИСКЛЮЧЕНИЕ: " + ex);
                 await new Windows.UI.Popups.MessageDialog(ex.ToString(), "Ошибка загрузки трека").ShowAsync();
             }
         }
@@ -424,7 +399,6 @@ namespace AudioVisualizerPlayer
         /// </summary>
         private async Task LoadTrackAsync(PlaylistItem item)
         {
-            Diag.Log($"LoadTrackAsync: начало, файл={item.File.Name}");
 
             // ВАЖНО: старый VisualizerService нужно освободить ДО вызова
             // _playback.LoadAsync — тот внутри себя вызывает DisposeGraph()
@@ -433,16 +407,12 @@ namespace AudioVisualizerPlayer
             // LoadAsync, Detach() пытается отписаться от графа, который
             // PlaybackService уже уничтожил мгновением раньше —
             // отсюда ObjectDisposedException при переключении треков.
-            Diag.Log("LoadTrackAsync: перед _visualizer?.Dispose()");
             _visualizer?.Dispose();
             _visualizer = null;
-            Diag.Log("LoadTrackAsync: после _visualizer?.Dispose()");
 
             try
             {
-                Diag.Log("LoadTrackAsync: перед _playback.LoadAsync");
                 await _playback.LoadAsync(item.File, title: item.Title, artist: item.Artist);
-                Diag.Log("LoadTrackAsync: после _playback.LoadAsync");
 
                 TrackTitleText.Text = item.Title;
                 TrackArtistText.Text = item.Artist;
@@ -451,21 +421,17 @@ namespace AudioVisualizerPlayer
                 // читает метаданные файла синхронно при создании узла.
                 ProgressSlider.Maximum = _playback.Duration.TotalSeconds;
                 DurationText.Text = FormatTime(_playback.Duration);
-                Diag.Log("LoadTrackAsync: UI (title/artist/duration) обновлён");
             }
             catch (Exception ex)
             {
-                Diag.Log("LoadTrackAsync: ИСКЛЮЧЕНИЕ в _playback.LoadAsync: " + ex);
                 throw new Exception("_playback.LoadAsync (" + item.File.Name + "): " + ex.Message, ex);
             }
 
             try
             {
-                Diag.Log("LoadTrackAsync: перед new VisualizerService()/AttachTo");
                 _visualizer = new VisualizerService();
                 _visualizer.AttachTo(_playback);
                 _visualizer.LevelsChanged += OnLevelsChanged;
-                Diag.Log("LoadTrackAsync: после AttachTo — готово");
                 // Отдельного Start()/Stop() у визуализатора нет — он просто
                 // подключён вторым выходом к общему AudioGraph и получает кадры
                 // ровно тогда, когда играет реальный звук (единственный
@@ -473,7 +439,6 @@ namespace AudioVisualizerPlayer
             }
             catch (Exception ex)
             {
-                Diag.Log("LoadTrackAsync: ИСКЛЮЧЕНИЕ в VisualizerService.AttachTo: " + ex);
                 throw new Exception("VisualizerService.AttachTo (" + item.File.Name + "): " + ex.Message, ex);
             }
         }
