@@ -84,14 +84,23 @@ namespace AudioVisualizerPlayer.Services
         {
             if (_equalizerBands != null && bandIndex >= 0 && bandIndex < _equalizerBands.Length)
             {
-                _equalizerBands[bandIndex].Gain = (float)gainDb;
-                AudioVisualizerPlayer.Helpers.Diag.Log($"SetEqualizerGain: полоса {bandIndex} -> {gainDb} дБ, реально применено (band.Gain теперь = {_equalizerBands[bandIndex].Gain})");
+                _equalizerBands[bandIndex].Gain = DbToLinearGain(gainDb);
+                AudioVisualizerPlayer.Helpers.Diag.Log($"SetEqualizerGain: полоса {bandIndex} -> {gainDb} дБ (линейно {_equalizerBands[bandIndex].Gain}), применено");
             }
             else
             {
                 AudioVisualizerPlayer.Helpers.Diag.Log($"SetEqualizerGain: полоса {bandIndex} -> {gainDb} дБ, НЕ применено — _equalizerBands == null: {_equalizerBands == null} (трек ещё не загружен?)");
             }
         }
+
+        /// <summary>
+        /// EqualizerBand.Gain — не децибелы, а линейный коэффициент усиления
+        /// (1.0 = без изменений, а не 0.0 — именно поэтому Gain=0 бросал
+        /// ArgumentException). UI/сохранённые настройки остаются в привычных
+        /// дБ, конвертация происходит только здесь, в точке применения к
+        /// реальному API.
+        /// </summary>
+        private static float DbToLinearGain(double db) => (float)Math.Pow(10.0, db / 20.0);
 
         /// <summary>
         /// Ручной выбор устройства вывода пользователем (см. MainPage,
@@ -286,11 +295,11 @@ namespace AudioVisualizerPlayer.Services
 
                     try
                     {
-                        band.Gain = (float)gain;
+                        band.Gain = DbToLinearGain(gain);
                     }
                     catch (Exception exGain)
                     {
-                        AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: Gain={gain} — ОШИБКА: {exGain.Message}");
+                        AudioVisualizerPlayer.Helpers.Diag.Log($"  Полоса {i}: Gain={gain} дБ (линейно {DbToLinearGain(gain)}) — ОШИБКА: {exGain.Message}");
                         throw;
                     }
 
