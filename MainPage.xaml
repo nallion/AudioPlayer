@@ -7,6 +7,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>       <!-- визуализатор -->
+            <RowDefinition Height="Auto"/>   <!-- название трека/исполнителя -->
             <RowDefinition Height="Auto"/>   <!-- прогресс -->
             <RowDefinition Height="Auto"/>   <!-- транспорт -->
         </Grid.RowDefinitions>
@@ -20,7 +21,18 @@
              реально доступно. -->
         <Grid x:Name="VisualizerPanel" Grid.Row="0" Margin="12,12,12,8"/>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="22,0,22,6">
+        <!-- Название трека и исполнителя — из ID3-тега файла, если тег пустой,
+             показываем просто имя файла (см. LoadDemoTrackAsync в code-behind). -->
+        <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="12,0,12,4">
+            <TextBlock x:Name="TrackTitleText" Text="" FontSize="18" FontWeight="SemiBold"
+                       Foreground="White" HorizontalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" MaxWidth="360"/>
+            <TextBlock x:Name="TrackArtistText" Text="" FontSize="13"
+                       Foreground="{StaticResource AppDimBrush}" HorizontalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" MaxWidth="360" Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="22,0,22,6">
             <TextBlock x:Name="ElapsedText" Text="0:00" Foreground="{StaticResource AppDimBrush}" FontSize="11" VerticalAlignment="Center"/>
             <Slider x:Name="ProgressSlider" Width="230" Margin="10,0" Minimum="0" Maximum="100"
                     ValueChanged="ProgressSlider_ValueChanged"
@@ -30,7 +42,7 @@
 
         <!-- Margin вместо StackPanel.Spacing — совместимо с любой версией UWP,
              начиная с самой первой (Spacing требует контракт v5 / build 16299). -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,26">
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,26">
             <Button x:Name="PreviousButton" Click="PreviousButton_Click" Background="Transparent" BorderThickness="0">
                 <SymbolIcon Symbol="Previous" Foreground="White"/>
             </Button>

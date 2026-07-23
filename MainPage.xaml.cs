@@ -159,9 +159,27 @@ namespace AudioVisualizerPlayer
 
             if (file == null) return;
 
+            string title, artist;
             try
             {
-                await _playback.LoadAsync(file, title: file.DisplayName, artist: "Unknown Artist");
+                // Стандартный, встроенный в Windows способ чтения ID3-тегов в UWP —
+                // без сторонних библиотек, свойства читаются системным индексатором.
+                var musicProps = await file.Properties.GetMusicPropertiesAsync();
+
+                title = string.IsNullOrWhiteSpace(musicProps.Title) ? file.DisplayName : musicProps.Title;
+                artist = string.IsNullOrWhiteSpace(musicProps.Artist) ? file.DisplayName : musicProps.Artist;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("ШАГ 2.5 (GetMusicPropertiesAsync): " + ex.Message, ex);
+            }
+
+            try
+            {
+                await _playback.LoadAsync(file, title: title, artist: artist);
+
+                TrackTitleText.Text = title;
+                TrackArtistText.Text = artist;
 
                 // Duration доступна сразу после LoadAsync — AudioFileInputNode
                 // читает метаданные файла синхронно при создании узла, никакого
