@@ -134,23 +134,62 @@ namespace AudioVisualizerPlayer
             }
         }
 
+        private static void WriteUiDiagnostics(string text)
+        {
+            try
+            {
+                var folder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                var path = System.IO.Path.Combine(folder.Path, "ui_diagnostics.log");
+                System.IO.File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss.fff") + "  " + text + "\n");
+            }
+            catch
+            {
+            }
+        }
+
+        private static int _levelsChangedCallCount = 0;
+
         private async void OnLevelsChanged(object sender, float[] bars)
         {
             _barLevels = bars;
+
+            int callNum = System.Threading.Interlocked.Increment(ref _levelsChangedCallCount);
+            if (callNum <= 3)
+            {
+                int previewCount = Math.Min(5, bars.Length);
+                var preview = new float[previewCount];
+                Array.Copy(bars, preview, previewCount);
+                WriteUiDiagnostics($"OnLevelsChanged вызван #{callNum}. bars.Length={bars.Length}, " +
+                    $"bars[0..4]=[{string.Join(", ", preview)}], " +
+                    $"_barRectangles == null: {_barRectangles == null}");
+            }
+
             // LevelsChanged прилетает из фонового потока AudioGraph — трогать
             // элементы UI (Rectangle.Height) можно только из UI-потока.
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
+                if (callNum <= 3)
+                {
+                    WriteUiDiagnostics($"Dispatcher-лямбда #{callNum} реально выполняется на UI-потоке.");
+                }
+
                 for (int i = 0; i < BarCount && i < bars.Length; i++)
                 {
                     double h = Math.Max(4.0, bars[i] * 70.0);
                     _barRectangles[i].Height = h;
                 }
+
+                if (callNum <= 3)
+                {
+                    WriteUiDiagnostics($"Цикл обновления Height завершён #{callNum}. " +
+                        $"_barRectangles[0].Height теперь = {_barRectangles[0].Height}, " +
+                        $"ActualHeight VisualizerPanel = {VisualizerPanel.ActualHeight}, " +
+                        $"Visibility VisualizerPanel = {VisualizerPanel.Visibility}");
+                }
             });
         }
 
         private bool _trackLoaded = false;
-        private bool _isUserDraggingSlider = false;
 
         private void OnMediaOpened(Windows.Media.Playback.MediaPlayer sender, object args)
         {
@@ -162,14 +201,18 @@ namespace AudioVisualizerPlayer
             });
         }
 
+        // true, когда мы САМИ меняем ProgressSlider.Value из OnPositionChanged —
+        // чтобы ProgressSlider_ValueChanged не принял это за перемотку от пользователя.
+        private bool _isProgrammaticSliderUpdate = false;
+
         private void OnPositionChanged(Windows.Media.Playback.MediaPlaybackSession sender, object args)
         {
-            if (_isUserDraggingSlider) return; // не дёргаем слайдер, пока пользователь его тащит
-
             var position = sender.Position;
             var dispatcherUnused = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
+                _isProgrammaticSliderUpdate = true;
                 ProgressSlider.Value = position.TotalSeconds;
+                _isProgrammaticSliderUpdate = false;
                 ElapsedText.Text = FormatTime(position);
             });
         }
@@ -177,18 +220,18 @@ namespace AudioVisualizerPlayer
         private static string FormatTime(TimeSpan t) =>
             $"{(int)t.TotalMinutes}:{t.Seconds:D2}";
 
-        private void ProgressSlider_PointerPressed(object sender, Windows.UI.Xaml.Input.PointerRoutedEventArgs e)
+        // ValueChanged — единственное событие Slider, которое гарантированно
+        // срабатывает при ЛЮБОМ изменении значения (перетаскивание пальцем,
+        // тап по треку, стрелки клавиатуры), в отличие от PointerPressed/Released,
+        // которые висят на внешнем элементе, а не на внутреннем Thumb, и могут
+        // не сработать надёжно при touch-перетаскивании — это и было вероятной
+        // причиной нерабочей перемотки.
+        private void ProgressSlider_ValueChanged(object sender, Windows.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
         {
-            _isUserDraggingSlider = true;
-        }
+            if (_isProgrammaticSliderUpdate) return; // это мы сами обновили из OnPositionChanged, не пользователь
+            if (_playback?.Player?.PlaybackSession == null) return;
 
-        private void ProgressSlider_PointerReleased(object sender, Windows.UI.Xaml.Input.PointerRoutedEventArgs e)
-        {
-            _isUserDraggingSlider = false;
-            if (_playback != null)
-            {
-                _playback.Player.PlaybackSession.Position = TimeSpan.FromSeconds(ProgressSlider.Value);
-            }
+            _playback.Player.PlaybackSession.Position = TimeSpan.FromSeconds(e.NewValue);
         }
 
         private async void PlayPauseButton_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
