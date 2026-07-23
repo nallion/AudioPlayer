@@ -190,8 +190,22 @@ namespace AudioVisualizerPlayer
             }
         }
 
+        private int _tickCounter = 0;
+
         private void PositionTimer_Tick(object sender, object e)
         {
+            // Heartbeat: если эта строка продолжает писаться даже во время
+            // "зависшего" интерфейса — значит UI-поток на самом деле жив и
+            // диспетчер разгребает очередь, просто что-то на уровне
+            // ввода/визуального дерева перестало пропускать касания. Если
+            // heartbeat тоже останавливается ровно в момент зависания —
+            // значит, это настоящий deadlock UI-потока.
+            _tickCounter++;
+            if (_tickCounter % 10 == 0) // раз в ~5 секунд, не заваливаем лог
+            {
+                Diag.Log($"HEARTBEAT: тик #{_tickCounter}, UI-поток жив, _trackLoaded={_trackLoaded}");
+            }
+
             if (_playback == null || !_trackLoaded) return;
 
             _isProgrammaticSliderUpdate = true;
@@ -211,9 +225,18 @@ namespace AudioVisualizerPlayer
             RootSplitView.IsPaneOpen = !RootSplitView.IsPaneOpen;
         }
 
-        private void PlaylistMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
+        private async void PlaylistMenuItem_Click(object sender, Windows.UI.Xaml.RoutedEventArgs e)
         {
             RootSplitView.IsPaneOpen = false;
+
+            // Кандидат-фикс на проверку: даём анимации закрытия SplitView
+            // время доиграть до конца, прежде чем навигировать прочь со
+            // страницы — если её прервать на середине переходом Frame.Navigate,
+            // невидимый light-dismiss слой Overlay-режима теоретически может
+            // остаться "зависшим" в визуальном дереве и перехватывать
+            // дальнейший ввод даже после возврата на страницу.
+            await Task.Delay(250);
+
             Frame.Navigate(typeof(PlaylistPage));
         }
 
