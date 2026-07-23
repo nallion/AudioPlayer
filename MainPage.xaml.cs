@@ -221,20 +221,7 @@ namespace AudioVisualizerPlayer
             if (_trackLoaded && _visualizer == null
                 && App.CurrentPlaylistIndex >= 0 && App.CurrentPlaylistIndex < App.CurrentPlaylist.Count)
             {
-                try
-                {
-                    _visualizer = new VisualizerService();
-                    await _visualizer.InitializeAsync(App.CurrentPlaylist[App.CurrentPlaylistIndex].File);
-                    _visualizer.LevelsChanged += OnLevelsChanged;
-                    if (_playback.IsPlaying)
-                    {
-                        _visualizer.Start(_playback.Position); // ресинхронизация — минимизируем накопившийся дрейф
-                    }
-                }
-                catch
-                {
-                    // Не критично — просто не будет визуализации, звук не пострадает.
-                }
+                await RefreshVisualizerAsync();
             }
 
             // Бегущая строка тоже была остановлена в OnNavigatedFrom — заводим заново.
@@ -565,6 +552,17 @@ namespace AudioVisualizerPlayer
                 {
                     _visualizer.Start(_playback.Position);
                 }
+
+                // Сбрасываем фазу периодического таймера — "следующее
+                // профилактическое обновление" должно быть ровно через 8
+                // секунд ОТ ЭТОГО момента (реального старта новой сессии
+                // декодирования), а не по независимому расписанию с момента
+                // запуска страницы. Без этого сброса таймер и естественная
+                // "смерть" декодера (~12 секунд от старта КАЖДОЙ сессии)
+                // расходятся по фазе, и между ними возникает окно, где
+                // визуализатор уже умер, а плановое обновление ещё не пришло.
+                _visualizerRefreshTimer?.Stop();
+                _visualizerRefreshTimer?.Start();
             }
             catch (Exception ex)
             {
@@ -630,6 +628,12 @@ namespace AudioVisualizerPlayer
                 _visualizer = new VisualizerService();
                 await _visualizer.InitializeAsync(item.File);
                 _visualizer.LevelsChanged += OnLevelsChanged;
+
+                // Тот же сброс фазы, что и в RefreshVisualizerAsync — новая
+                // сессия декодирования начинается прямо здесь.
+                _visualizerRefreshTimer?.Stop();
+                _visualizerRefreshTimer?.Start();
+
                 Diag.Log("LoadTrackAsync: InitializeAsync — готово");
             }
             catch (Exception ex)
