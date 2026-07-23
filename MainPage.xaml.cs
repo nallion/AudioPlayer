@@ -239,37 +239,44 @@ namespace AudioVisualizerPlayer
 
             if (overflow <= 0)
             {
-                // Помещается целиком — просто центрируем через тот же
-                // TranslateTransform, который иначе используется для прокрутки.
+                // Помещается целиком — прячем вторую копию и разделитель,
+                // просто центрируем единственную копию через transform.
+                TitleMarqueeGap.Visibility = Windows.UI.Xaml.Visibility.Collapsed;
+                TrackTitleText2.Visibility = Windows.UI.Xaml.Visibility.Collapsed;
                 TitleMarqueeTransform.X = (containerWidth - textWidth) / 2.0;
                 return;
             }
 
-            // Не помещается — запускаем бесконечную круговую бегущую строку:
-            // пауза у начала, скролл влево до конца текста, пауза, мгновенный
-            // сброс в начало и повтор — без обратного скролла вправо.
+            // Не помещается — настоящая кольцевая прокрутка: показываем вторую
+            // копию текста через разделитель (TitleMarqueeGap), и двигаем ВЕСЬ
+            // StackPanel (обе копии сразу) равномерно влево на одно "звено"
+            // цикла = textWidth + ширина разделителя. Ровно в момент, когда
+            // первая копия целиком уезжает за левый край, вторая копия как раз
+            // оказывается там, где была первая изначально — поэтому сброс
+            // анимации в начало цикла не заметен глазу, и получается иллюзия
+            // бесконечно ползущей ленты (текст "заползает" за левый край и
+            // "выползает" из-за правого).
+            TitleMarqueeGap.Visibility = Windows.UI.Xaml.Visibility.Visible;
+            TrackTitleText2.Visibility = Windows.UI.Xaml.Visibility.Visible;
+
+            double gapWidth = TitleMarqueeGap.Width;
+            double period = textWidth + gapWidth; // одно "звено" цикла
+
             const double pixelsPerSecond = 40.0;
-            double scrollSeconds = overflow / pixelsPerSecond;
+            double durationSeconds = period / pixelsPerSecond;
 
-            var timeline = new DoubleAnimationUsingKeyFrames();
-            Storyboard.SetTarget(timeline, TitleMarqueeTransform);
-            Storyboard.SetTargetProperty(timeline, "X");
-
-            TimeSpan t0 = TimeSpan.Zero;
-            TimeSpan t1 = TimeSpan.FromSeconds(1);                       // пауза у начала
-            TimeSpan t2 = t1 + TimeSpan.FromSeconds(scrollSeconds);       // скролл влево до конца
-            TimeSpan t3 = t2 + TimeSpan.FromSeconds(1);                  // пауза у конца
-
-            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t0, Value = 0 });
-            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t1, Value = 0 });
-            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t2, Value = -overflow });
-            timeline.KeyFrames.Add(new LinearDoubleKeyFrame { KeyTime = t3, Value = -overflow });
-            // Обратного скролла нет — RepeatBehavior.Forever сам мгновенно
-            // вернёт анимацию к первому кадру (X=0) и начнёт цикл заново,
-            // это и даёт круговой эффект вместо туда-обратно.
+            var animation = new DoubleAnimation
+            {
+                From = 0,
+                To = -period,
+                Duration = new Duration(TimeSpan.FromSeconds(durationSeconds)),
+                // Без Easing — постоянная скорость, как у настоящей бегущей ленты.
+            };
+            Storyboard.SetTarget(animation, TitleMarqueeTransform);
+            Storyboard.SetTargetProperty(animation, "X");
 
             _titleMarqueeStoryboard = new Storyboard { RepeatBehavior = RepeatBehavior.Forever };
-            _titleMarqueeStoryboard.Children.Add(timeline);
+            _titleMarqueeStoryboard.Children.Add(animation);
             _titleMarqueeStoryboard.Begin();
         }
 
@@ -490,6 +497,7 @@ namespace AudioVisualizerPlayer
                 await _playback.LoadAsync(item.File, title: item.Title, artist: item.Artist);
 
                 TrackTitleText.Text = item.Title;
+                TrackTitleText2.Text = item.Title; // вторая копия для кольцевой бегущей строки
                 TrackArtistText.Text = item.Artist;
                 StartTitleMarqueeIfNeeded();
 

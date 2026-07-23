@@ -55,17 +55,27 @@
 
                 <!-- Название трека и исполнителя — из ID3-тега файла, если тег пустой,
                      показываем просто имя файла (см. LoadTrackAsync в code-behind).
-                     Название — бегущая строка (см. StartTitleMarqueeIfNeeded), если
-                     не помещается по ширине; исполнитель — обычная обрезка многоточием. -->
+                     Название — кольцевая бегущая строка (см. StartTitleMarqueeIfNeeded):
+                     ДВЕ копии текста подряд через разделитель внутри одного
+                     горизонтального StackPanel — когда первая копия уезжает влево
+                     за пределы контейнера, вторая в этот момент оказывается ровно
+                     на её месте, и цикл анимации выглядит бесшовным (текст будто
+                     заползает слева и выползает справа по кругу). Если текст
+                     помещается сам — вторая копия и разделитель прячутся, просто
+                     центрируем единственную копию. -->
                 <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="12,0,12,4">
                     <Grid x:Name="TitleClipContainer" Width="320" Height="24"
                           HorizontalAlignment="Center" SizeChanged="TitleClipContainer_SizeChanged">
-                        <TextBlock x:Name="TrackTitleText" Text="" FontSize="18" FontWeight="SemiBold"
-                                   Foreground="White" HorizontalAlignment="Left" VerticalAlignment="Center">
-                            <TextBlock.RenderTransform>
+                        <StackPanel x:Name="TitleMarqueePanel" Orientation="Horizontal" VerticalAlignment="Center">
+                            <StackPanel.RenderTransform>
                                 <TranslateTransform x:Name="TitleMarqueeTransform"/>
-                            </TextBlock.RenderTransform>
-                        </TextBlock>
+                            </StackPanel.RenderTransform>
+                            <TextBlock x:Name="TrackTitleText" Text="" FontSize="18" FontWeight="SemiBold"
+                                       Foreground="White"/>
+                            <Border x:Name="TitleMarqueeGap" Width="60" Visibility="Collapsed"/>
+                            <TextBlock x:Name="TrackTitleText2" Text="" FontSize="18" FontWeight="SemiBold"
+                                       Foreground="White" Visibility="Collapsed"/>
+                        </StackPanel>
                     </Grid>
                     <TextBlock x:Name="TrackArtistText" Text="" FontSize="13"
                                Foreground="{StaticResource AppDimBrush}" HorizontalAlignment="Center"
