@@ -19,9 +19,42 @@ namespace AudioVisualizerPlayer
 
         public App()
         {
-            InitializeComponent();
-            Suspending += OnSuspending;
+            // ВАЖНО: подписка на UnhandledException должна идти ДО InitializeComponent().
+            // Если краш происходит в самом InitializeComponent() (парсинг App.xaml —
+            // самая первая вещь, которую вообще выполняет приложение), а подписка
+            // была бы после неё, обработчик просто не успел бы зарегистрироваться,
+            // и мы бы никогда не увидели ни диалог, ни crash.log — ровно то,
+            // что происходит сейчас.
             UnhandledException += OnUnhandledException;
+
+            try
+            {
+                InitializeComponent();
+                Suspending += OnSuspending;
+            }
+            catch (Exception ex)
+            {
+                // Обычный try/catch работает на уровне IL независимо от того, успела
+                // ли инициализироваться событийная система XAML — на случай если
+                // именно от этого зависит срабатывание UnhandledException выше.
+                // WriteLogSync — не-async версия записи, конструктор не может быть async.
+                WriteCrashLogSync(ex.ToString());
+                throw;
+            }
+        }
+
+        private static void WriteCrashLogSync(string text)
+        {
+            try
+            {
+                var folder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                var path = System.IO.Path.Combine(folder.Path, "crash.log");
+                System.IO.File.WriteAllText(path, text);
+            }
+            catch
+            {
+                // Если и это не удалось — сделать уже ничего нельзя.
+            }
         }
 
         private async void OnUnhandledException(object sender, Windows.UI.Xaml.UnhandledExceptionEventArgs e)
@@ -48,28 +81,39 @@ namespace AudioVisualizerPlayer
 
         protected override void OnLaunched(LaunchActivatedEventArgs e)
         {
-            // Плеер создаём один раз за всё время жизни процесса
-            if (Playback == null)
+            try
             {
-                Playback = new PlaybackService();
-            }
-
-            Frame rootFrame = Window.Current.Content as Frame;
-
-            if (rootFrame == null)
-            {
-                rootFrame = new Frame();
-                rootFrame.NavigationFailed += OnNavigationFailed;
-                Window.Current.Content = rootFrame;
-            }
-
-            if (e.PrelaunchActivated == false)
-            {
-                if (rootFrame.Content == null)
+                // Плеер создаём один раз за всё время жизни процесса
+                if (Playback == null)
                 {
-                    rootFrame.Navigate(typeof(MainPage), e.Arguments);
+                    Playback = new PlaybackService();
                 }
-                Window.Current.Activate();
+
+                Frame rootFrame = Window.Current.Content as Frame;
+
+                if (rootFrame == null)
+                {
+                    rootFrame = new Frame();
+                    rootFrame.NavigationFailed += OnNavigationFailed;
+                    Window.Current.Content = rootFrame;
+                }
+
+                if (e.PrelaunchActivated == false)
+                {
+                    if (rootFrame.Content == null)
+                    {
+                        rootFrame.Navigate(typeof(MainPage), e.Arguments);
+                    }
+                    Window.Current.Activate();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Тот же приём: обычный try/catch, а не только событийный
+                // UnhandledException — на случай если PlaybackService/MediaPlayer
+                // валится именно здесь, до того как открылась MainPage.
+                WriteCrashLogSync(ex.ToString());
+                throw;
             }
         }
 
