@@ -60,10 +60,13 @@ namespace AudioVisualizerPlayer.Services
         /// </summary>
         public async System.Threading.Tasks.Task InitializeLoopbackAsync()
         {
+            Diag.Log("VisualizerService.InitializeLoopbackAsync: начало");
             Dispose(); // на случай повторного использования экземпляра
 
             var settings = new AudioGraphSettings(AudioRenderCategory.Media);
+            Diag.Log("InitializeLoopbackAsync: перед AudioGraph.CreateAsync");
             var graphResult = await AudioGraph.CreateAsync(settings);
+            Diag.Log($"InitializeLoopbackAsync: AudioGraph.CreateAsync status={graphResult.Status}");
             if (graphResult.Status != AudioGraphCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось создать AudioGraph для loopback: " + graphResult.Status);
 
@@ -72,19 +75,28 @@ namespace AudioVisualizerPlayer.Services
             // Ключевой момент: берём устройство из СЕЛЕКТОРА УСТРОЙСТВ
             // ВЫВОДА (не ввода!) — именно это заставляет систему выполнить
             // loopback-захват вместо записи с микрофона.
+            Diag.Log("InitializeLoopbackAsync: перед DeviceInformation.FindAllAsync(GetAudioRenderSelector)");
             var renderDevices = await DeviceInformation.FindAllAsync(MediaDevice.GetAudioRenderSelector());
+            Diag.Log($"InitializeLoopbackAsync: найдено устройств вывода = {renderDevices.Count}");
+            foreach (var d in renderDevices)
+            {
+                Diag.Log($"  устройство: Name='{d.Name}', Id='{d.Id}'");
+            }
             if (renderDevices.Count == 0)
                 throw new InvalidOperationException("Не найдено ни одного устройства вывода для loopback-захвата.");
 
             var loopbackDevice = renderDevices[0]; // системное устройство по умолчанию — первое в списке
+            Diag.Log($"InitializeLoopbackAsync: выбрано устройство '{loopbackDevice.Name}', перед CreateDeviceInputNodeAsync");
 
             var inputResult = await _graph.CreateDeviceInputNodeAsync(MediaCategory.Media, _graph.EncodingProperties, loopbackDevice);
+            Diag.Log($"InitializeLoopbackAsync: CreateDeviceInputNodeAsync status={inputResult.Status}");
             if (inputResult.Status != AudioDeviceNodeCreationStatus.Success)
                 throw new InvalidOperationException("Не удалось создать loopback-узел: " + inputResult.Status);
 
             _loopbackInput = inputResult.DeviceInputNode;
             _frameOutput = _graph.CreateFrameOutputNode();
             _loopbackInput.AddOutgoingConnection(_frameOutput);
+            Diag.Log("InitializeLoopbackAsync: узлы соединены");
 
             _graph.QuantumStarted += OnQuantumStarted;
 
@@ -95,6 +107,7 @@ namespace AudioVisualizerPlayer.Services
             // паузу). Управление Start()/Stop() ниже остаётся только ради
             // экономии CPU в фоне/на паузе, не ради корректности.
             _graph.Start();
+            Diag.Log("InitializeLoopbackAsync: _graph.Start() вызван — завершено успешно");
         }
 
         public void Start()
@@ -120,11 +133,19 @@ namespace AudioVisualizerPlayer.Services
         private volatile bool _isProcessingFft = false;
         private bool _skipThisQuantum = false;
 
+        private int _quantumCallCount = 0;
+
         private void OnQuantumStarted(AudioGraph sender, object args)
         {
             try
             {
                 if (IsPaused) return;
+
+                _quantumCallCount++;
+                if (_quantumCallCount % 50 == 0)
+                {
+                    Diag.Log($"VisualizerService.OnQuantumStarted: heartbeat, вызовов={_quantumCallCount}");
+                }
 
                 Windows.Media.AudioFrame frame = _frameOutput.GetFrame();
                 int sampleCount = ExtractSamplesInto(frame, ref _extractScratch);
@@ -156,9 +177,9 @@ namespace AudioVisualizerPlayer.Services
                         NormalizeWithAgc(bars);
                         LevelsChanged?.Invoke(this, bars);
                     }
-                    catch
+                    catch (Exception exInner)
                     {
-                        // Ошибка в расчёте — просто пропускаем этот кадр визуализации.
+                        Diag.Log("OnQuantumStarted (фон, расчёт FFT): ОШИБКА: " + exInner);
                     }
                     finally
                     {
@@ -166,11 +187,9 @@ namespace AudioVisualizerPlayer.Services
                     }
                 });
             }
-            catch
+            catch (Exception ex)
             {
-                // Callback loopback-графа — необработанное исключение здесь не
-                // может повлиять на реальный звук (он идёт через MediaPlayer,
-                // полностью отдельно, мы только слушаем).
+                Diag.Log("OnQuantumStarted: ОШИБКА: " + ex);
             }
         }
 

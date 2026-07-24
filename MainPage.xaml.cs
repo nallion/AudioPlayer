@@ -156,7 +156,14 @@ namespace AudioVisualizerPlayer
                 // просто не существует.
                 _visualizer = new VisualizerService();
                 _visualizer.LevelsChanged += OnLevelsChanged;
-                _ = _visualizer.InitializeLoopbackAsync();
+
+                // Раньше было "_ = _visualizer.InitializeLoopbackAsync();" —
+                // fire-and-forget без await и без catch означает, что любое
+                // исключение внутри просто исчезает бесследно, мы никогда не
+                // узнаём, что пошло не так. Оборачиваем в отдельный метод
+                // с логированием, чтобы точно увидеть причину, если
+                // инициализация провалится.
+                _ = InitializeVisualizerWithLoggingAsync();
 
                 // Позиция и длительность — раз в 500мс опрашиваем
                 // MediaPlayer.PlaybackSession.Position через PlaybackService.
@@ -197,6 +204,24 @@ namespace AudioVisualizerPlayer
             if (_trackLoaded)
             {
                 StartTitleMarqueeIfNeeded();
+            }
+        }
+
+        /// <summary>
+        /// Оборачивает InitializeLoopbackAsync — ловит и логирует исключение,
+        /// раз вызывающий код (MainPage_Loaded) не может себе позволить
+        /// await (это не async-метод) и раньше просто терял любую ошибку
+        /// молча через "_ = ...".
+        /// </summary>
+        private async Task InitializeVisualizerWithLoggingAsync()
+        {
+            try
+            {
+                await _visualizer.InitializeLoopbackAsync();
+            }
+            catch (Exception ex)
+            {
+                Diag.Log("InitializeVisualizerWithLoggingAsync: ОШИБКА при инициализации loopback: " + ex);
             }
         }
 
