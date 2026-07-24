@@ -103,7 +103,14 @@ namespace AudioVisualizerPlayer.Services
                 // Формат задаётся на весь AudioGraphSettings (влияет на весь
                 // граф целиком, включая Submix), отдельно "только для Submix"
                 // задать нельзя — WinRT API не даёт такой детализации.
-                EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(48000, 2, 24)
+                EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(48000, 2, 24),
+
+                // Явно фиксируем системное значение по умолчанию — и так было
+                // неявно (это и есть default), но теперь зафиксировано в коде,
+                // а не полагается на умолчание библиотеки. Пробовали раньше
+                // явный ClosestToDesired + DesiredSamplesPerQuantum=960 —
+                // щелчки стали ЧАЩЕ, откатили обратно на системное значение.
+                QuantumSizeSelectionMode = QuantumSizeSelectionMode.SystemDefault
             };
 
             var graphResult = await AudioGraph.CreateAsync(settings);
