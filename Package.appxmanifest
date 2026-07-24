@@ -53,5 +53,10 @@
     <Capability Name="internetClient" />
     <uap:Capability Name="musicLibrary" />
     <uap3:Capability Name="backgroundMediaPlayback" />
+    <!-- Нужна для AudioGraph.CreateDeviceInputNodeAsync — используем именно
+         как loopback-захват (см. VisualizerService), но сама точка API
+         на уровне разрешений не отличает "микрофон" от "loopback", капабилити
+         одна и та же для обоих сценариев. -->
+    <DeviceCapability Name="microphone" />
   </Capabilities>
 </Package>
