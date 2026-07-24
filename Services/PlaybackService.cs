@@ -99,9 +99,11 @@ namespace AudioVisualizerPlayer.Services
 
             var settings = new AudioGraphSettings(AudioRenderCategory.Media)
             {
-                // Пробуем моно вместо стерео — проверяем, не связаны ли
-                // щелчки с нагрузкой на обработку двух каналов одновременно.
-                EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(44100, 1, 16)
+                // 48000Гц/стерео/24бит — ещё один вариант формата на пробу.
+                // Формат задаётся на весь AudioGraphSettings (влияет на весь
+                // граф целиком, включая Submix), отдельно "только для Submix"
+                // задать нельзя — WinRT API не даёт такой детализации.
+                EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(48000, 2, 24)
             };
 
             var graphResult = await AudioGraph.CreateAsync(settings);
