@@ -99,7 +99,9 @@ namespace AudioVisualizerPlayer.Services
 
             var settings = new AudioGraphSettings(AudioRenderCategory.Media)
             {
-                EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(44100, 2, 16)
+                // Пробуем моно вместо стерео — проверяем, не связаны ли
+                // щелчки с нагрузкой на обработку двух каналов одновременно.
+                EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(44100, 1, 16)
             };
 
             var graphResult = await AudioGraph.CreateAsync(settings);
