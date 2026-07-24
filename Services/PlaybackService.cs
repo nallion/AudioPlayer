@@ -1,49 +1,42 @@
 using System;
 using System.Threading.Tasks;
 using Windows.Media;
-using Windows.Media.Core;
-using Windows.Media.Playback;
+using Windows.Media.Audio;
+using Windows.Media.Render;
 using Windows.Storage;
 using Windows.Storage.Streams;
 
 namespace AudioVisualizerPlayer.Services
 {
     /// <summary>
-    /// Воспроизведение через Windows.Media.Playback.MediaPlayer — вернулись
-    /// сюда после долгого архитектурного эксперимента с единым AudioGraph
-    /// (звук + анализ спектра через один граф с промежуточным Submix). Тот
-    /// эксперимент решал красивую задачу (нулевой дрейф между звуком и
-    /// визуализацией), но давал регулярные, не до конца объяснимые щелчки
-    /// в звуке — причём даже в WAV, даже с полностью отключённым
-    /// визуализатором/таймером позиции/эквалайзером/увеличенным буфером.
+    /// Единый AudioGraph на воспроизведение звука — возврат к архитектуре
+    /// "один граф на всё" (FileInput → Submix → DeviceOutput + FrameOutput
+    /// для визуализатора), но с ПОСЛЕДНЕЙ непроверенной комбинацией: явно
+    /// заданный PCM-формат 44100Гц/стерео/16бит — РЕАЛЬНАЯ нативная частота
+    /// файла (он CBR), а не 48000 (которые мы форсировали раньше по ошибочной
+    /// теории) и не "авто" (то и другое уже проверяли — щёлкало).
     ///
-    /// РЕШАЮЩЕЕ доказательство, что дело было именно в нашей AudioGraph-
-    /// архитектуре, а не в самом устройстве: тот же файл в VLC и системном
-    /// плеере (оба почти наверняка построены на MediaPlayer) играет идеально
-    /// на этом же телефоне. MediaPlayer — высокоуровневый, годами отточенный
-    /// платформой API, здесь доказанно стабилен.
+    /// Если явные 44100 (без несоответствия частоте файла, без "авто",
+    /// которое могло согласовываться на что-то отличное от родной частоты)
+    /// уберут щелчки — эта архитектура возвращает идеальную синхронизацию
+    /// звука и визуализации ПО ПОСТРОЕНИЮ, без всех костылей независимого
+    /// декодера (Seek, TrackLooped, плановые обновления), которые понадобились
+    /// после перехода на MediaPlayer + отдельный визуализатор.
     ///
-    /// ЦЕНА ВОЗВРАТА (известные, осознанные ограничения):
-    /// 1. Визуализатор больше не может читать тот же поток, что играет
-    ///    звук, — MediaPlayer не даёт такого доступа. Он снова читает файл
-    ///    ОТДЕЛЬНО, через свой независимый AudioGraph (см. VisualizerService).
-    ///    Небольшой дрейф между звуком и визуализацией теоретически возможен
-    ///    при частых паузах/перемотках — гасим его Seek-ресинхронизацией
-    ///    (см. MainPage.OnPlaybackStateChanged и ProgressSlider_ValueChanged).
-    /// 2. Эквалайзер убран полностью — EqualizerEffectDefinition часть именно
-    ///    AudioGraph API, с MediaPlayer напрямую не работает, а единственный
-    ///    официальный обходной путь (свой DSP-эффект как отдельный Windows
-    ///    Runtime Component + 5-10-секундная задержка отклика из-за
-    ///    буферизации в конвейере MediaPlayer) того не стоит.
-    /// 3. Ручной выбор устройства вывода убран полностью (не просто
-    ///    отключён) — PrimaryRenderDevice тоже часть AudioGraphSettings,
-    ///    у MediaPlayer нет прямого аналога.
+    /// НАПОМИНАНИЕ (см. историю): AudioFileInputNode.AddOutgoingConnection()
+    /// напрямую в ДВА узла одновременно бросает XAUDIO2_E_INVALID_CALL на
+    /// этом устройстве — узел чтения сжатого формата не поддерживает больше
+    /// одного исходящего соединения надёжно. Решение — промежуточный
+    /// AudioSubmixNode: FileInput → Submix → (DeviceOutput И FrameOutput).
     /// </summary>
     public class PlaybackService
     {
-        private MediaPlayer _player;
+        private AudioGraph _graph;
+        private AudioFileInputNode _fileInput;
+        private AudioSubmixNode _submix;
+        private AudioDeviceOutputNode _deviceOutput;
 
-        public SystemMediaTransportControls Smtc => _player?.SystemMediaTransportControls;
+        public SystemMediaTransportControls Smtc { get; }
 
         /// <summary>true — сейчас играет, false — на паузе/остановлено.</summary>
         public event EventHandler<bool> PlaybackStateChanged;
@@ -52,26 +45,8 @@ namespace AudioVisualizerPlayer.Services
         /// подписывается MainPage для автоперехода к следующему треку.</summary>
         public event EventHandler TrackEnded;
 
-        /// <summary>
-        /// Трек только что перемотался в начало и продолжил играть из-за
-        /// LoopCurrentTrack — визуализатор (свой независимый поток, не знает
-        /// о реальной позиции сам по себе) должен пересинхронизироваться
-        /// на этот момент, иначе он продолжит играть вперёд по старой
-        /// позиции, никогда не "отскакивая" вместе с реальным звуком.
-        /// </summary>
-        public event EventHandler TrackLooped;
-
         public event EventHandler NextRequested;
         public event EventHandler PreviousRequested;
-
-        /// <summary>
-        /// В отличие от AudioGraph (где AudioFileInputNode читал метаданные
-        /// синхронно при создании узла), у MediaPlayer Duration/NaturalDuration
-        /// доступны НЕ сразу после LoadAsync — файл открывается асинхронно.
-        /// Подписывайтесь на это событие, чтобы узнать точный момент, когда
-        /// Duration уже можно читать (вместо предположения "сразу после LoadAsync").
-        /// </summary>
-        public event EventHandler MediaOpened;
 
         /// <summary>
         /// Бесконечное зацикленное воспроизведение ТЕКУЩЕГО трека — если
@@ -80,31 +55,27 @@ namespace AudioVisualizerPlayer.Services
         /// </summary>
         public bool LoopCurrentTrack { get; set; }
 
-        public bool IsPlaying =>
-            _player?.PlaybackSession != null &&
-            _player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+        public bool IsPlaying { get; private set; }
+
+        /// <summary>
+        /// Доступ к общему графу и submix-узлу — VisualizerService подключает
+        /// свой FrameOutputNode вторым исходящим соединением ОТ SUBMIX-узла
+        /// (не от FileInput напрямую — см. комментарий к классу).
+        /// </summary>
+        public AudioGraph Graph => _graph;
+        public AudioSubmixNode Submix => _submix;
 
         public TimeSpan Position
         {
-            get => _player?.PlaybackSession?.Position ?? TimeSpan.Zero;
-            set { if (_player?.PlaybackSession != null) _player.PlaybackSession.Position = value; }
+            get => _fileInput?.Position ?? TimeSpan.Zero;
+            set { if (_fileInput != null) _fileInput.Seek(value); }
         }
 
-        public TimeSpan Duration => _player?.PlaybackSession?.NaturalDuration ?? TimeSpan.Zero;
+        public TimeSpan Duration => _fileInput?.Duration ?? TimeSpan.Zero;
 
         public PlaybackService()
         {
-            _player = new MediaPlayer { AutoPlay = false };
-
-            // Отключаем автоматическую обработку системных кнопок лок-скрина —
-            // обрабатываем Play/Pause/Next/Previous сами, единым путём что для
-            // аппаратных кнопок, что для кнопок в UI (RaiseNextRequested и т.п.).
-            _player.CommandManager.IsEnabled = false;
-
-            _player.MediaEnded += OnMediaEnded;
-            _player.MediaOpened += (s, a) => MediaOpened?.Invoke(this, EventArgs.Empty);
-            _player.PlaybackSession.PlaybackStateChanged += OnPlaybackSessionStateChanged;
-
+            Smtc = SystemMediaTransportControls.GetForCurrentView();
             Smtc.IsPlayEnabled = true;
             Smtc.IsPauseEnabled = true;
             Smtc.IsNextEnabled = true;
@@ -112,10 +83,66 @@ namespace AudioVisualizerPlayer.Services
             Smtc.ButtonPressed += OnSmtcButtonPressed;
         }
 
-        public Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null)
+        private static int _graphCreationCount = 0;
+
+        /// <summary>
+        /// Загружает трек: создаёт AudioGraph с ЯВНО заданным PCM 44100Гц/
+        /// стерео/16бит (реальная нативная частота файла — CBR mp3),
+        /// файловый узел, submix, узел вывода на динамики, соединяет их,
+        /// обновляет метаданные для лок-скрина.
+        /// </summary>
+        public async Task LoadAsync(StorageFile file, string title, string artist, StorageFile albumArt = null)
         {
-            var source = MediaSource.CreateFromStorageFile(file);
-            _player.Source = source;
+            AudioVisualizerPlayer.Helpers.Diag.Log($"LoadAsync начат для файла: {file.Name}");
+
+            DisposeGraph();
+
+            var settings = new AudioGraphSettings(AudioRenderCategory.Media)
+            {
+                EncodingProperties = Windows.Media.MediaProperties.AudioEncodingProperties.CreatePcm(44100, 2, 16)
+            };
+
+            var graphResult = await AudioGraph.CreateAsync(settings);
+            AudioVisualizerPlayer.Helpers.Diag.Log($"  AudioGraph.CreateAsync status={graphResult.Status}");
+            if (graphResult.Status != AudioGraphCreationStatus.Success)
+                throw new InvalidOperationException("Не удалось создать AudioGraph: " + graphResult.Status);
+
+            _graph = graphResult.Graph;
+            _graphCreationCount++;
+
+            var fileInputResult = await _graph.CreateFileInputNodeAsync(file);
+            AudioVisualizerPlayer.Helpers.Diag.Log($"  CreateFileInputNodeAsync status={fileInputResult.Status}");
+            if (fileInputResult.Status != AudioFileNodeCreationStatus.Success)
+                throw new InvalidOperationException("Не удалось открыть файл: " + fileInputResult.Status);
+
+            _fileInput = fileInputResult.FileInputNode;
+
+            _submix = _graph.CreateSubmixNode();
+            AudioVisualizerPlayer.Helpers.Diag.Log("  Submix создан, перед FileInput.AddOutgoingConnection(Submix)");
+            _fileInput.AddOutgoingConnection(_submix);
+            AudioVisualizerPlayer.Helpers.Diag.Log("  FileInput -> Submix подключено");
+
+            var deviceOutputResult = await _graph.CreateDeviceOutputNodeAsync();
+            AudioVisualizerPlayer.Helpers.Diag.Log($"  CreateDeviceOutputNodeAsync status={deviceOutputResult.Status}");
+            if (deviceOutputResult.Status != AudioDeviceNodeCreationStatus.Success)
+                throw new InvalidOperationException("Не удалось создать вывод на устройство: " + deviceOutputResult.Status);
+
+            _deviceOutput = deviceOutputResult.DeviceOutputNode;
+            _submix.AddOutgoingConnection(_deviceOutput);
+            AudioVisualizerPlayer.Helpers.Diag.Log("  Submix -> DeviceOutput подключено — граф собран");
+
+            _fileInput.FileCompleted += (s, a) =>
+            {
+                if (LoopCurrentTrack)
+                {
+                    _fileInput.Seek(TimeSpan.Zero);
+                    return;
+                }
+
+                IsPlaying = false;
+                PlaybackStateChanged?.Invoke(this, false);
+                TrackEnded?.Invoke(this, EventArgs.Empty);
+            };
 
             var updater = Smtc.DisplayUpdater;
             updater.Type = MediaPlaybackType.Music;
@@ -128,12 +155,26 @@ namespace AudioVisualizerPlayer.Services
             }
 
             updater.Update();
-
-            return Task.CompletedTask; // async-сигнатура сохранена для совместимости вызывающего кода
+            AudioVisualizerPlayer.Helpers.Diag.Log("LoadAsync завершён успешно (SMTC обновлён)");
         }
 
-        public void Play() => _player.Play();
-        public void Pause() => _player.Pause();
+        public void Play()
+        {
+            AudioVisualizerPlayer.Helpers.Diag.Log($"Play() вызван, _graph == null: {_graph == null}");
+            _graph?.Start();
+            IsPlaying = true;
+            Smtc.PlaybackStatus = MediaPlaybackStatus.Playing;
+            PlaybackStateChanged?.Invoke(this, true);
+        }
+
+        public void Pause()
+        {
+            AudioVisualizerPlayer.Helpers.Diag.Log("Pause() вызван");
+            _graph?.Stop();
+            IsPlaying = false;
+            Smtc.PlaybackStatus = MediaPlaybackStatus.Paused;
+            PlaybackStateChanged?.Invoke(this, false);
+        }
 
         public void TogglePlayPause()
         {
@@ -141,39 +182,11 @@ namespace AudioVisualizerPlayer.Services
             else Play();
         }
 
-        // Публичные методы-триггеры: событие нельзя инициировать (Invoke) снаружи
-        // объявляющего класса — только через += / -=. Кнопки Next/Prev в UI
-        // должны вызывать именно эти методы, а не трогать событие напрямую.
         public void RaiseNextRequested() => NextRequested?.Invoke(this, EventArgs.Empty);
         public void RaisePreviousRequested() => PreviousRequested?.Invoke(this, EventArgs.Empty);
 
-        private void OnMediaEnded(MediaPlayer sender, object args)
-        {
-            if (LoopCurrentTrack)
-            {
-                // Просто перематываем в начало и продолжаем — трек не
-                // "закончился" с точки зрения плеера, TrackEnded не стреляет,
-                // автопереход к следующему треку не запускается.
-                _player.PlaybackSession.Position = TimeSpan.Zero;
-                _player.Play();
-                TrackLooped?.Invoke(this, EventArgs.Empty);
-                return;
-            }
-
-            TrackEnded?.Invoke(this, EventArgs.Empty);
-        }
-
-        private void OnPlaybackSessionStateChanged(MediaPlaybackSession sender, object args)
-        {
-            bool playing = sender.PlaybackState == MediaPlaybackState.Playing;
-            PlaybackStateChanged?.Invoke(this, playing);
-            Smtc.PlaybackStatus = playing ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
-        }
-
         private void OnSmtcButtonPressed(SystemMediaTransportControls sender, SystemMediaTransportControlsButtonPressedEventArgs args)
         {
-            // Обработчик вызывается в фоновом потоке. Play()/Pause() здесь —
-            // это вызовы MediaPlayer.Play()/Pause(), thread-safe, не требуют UI-потока.
             switch (args.Button)
             {
                 case SystemMediaTransportControlsButton.Play:
@@ -189,6 +202,17 @@ namespace AudioVisualizerPlayer.Services
                     PreviousRequested?.Invoke(this, EventArgs.Empty);
                     break;
             }
+        }
+
+        private void DisposeGraph()
+        {
+            _graph?.Stop();
+            _fileInput?.Dispose();
+            _graph?.Dispose();
+            _graph = null;
+            _fileInput = null;
+            _submix = null;
+            _deviceOutput = null;
         }
     }
 }

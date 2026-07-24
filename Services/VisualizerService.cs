@@ -1,45 +1,24 @@
 using System;
 using System.Numerics;
 using AudioVisualizerPlayer.Helpers;
-using Windows.Devices.Enumeration;
 using Windows.Media.Audio;
-using Windows.Media.Capture;
-using Windows.Media.Devices;
-using Windows.Media.Render;
 
 namespace AudioVisualizerPlayer.Services
 {
     /// <summary>
-    /// Анализ спектра через LOOPBACK-захват — слушаем то, что РЕАЛЬНО играет
-    /// на выходе устройства (тот же самый сигнал, что слышит пользователь),
-    /// вместо того чтобы читать файл заново отдельным независимым декодером.
+    /// Анализ спектра — подключается вторым исходящим соединением к ТОМУ ЖЕ
+    /// AudioFileInputNode через Submix, что и реальный звук (см.
+    /// PlaybackService.LoadAsync). Один и тот же поток данных для звука и
+    /// визуализации — идеальная синхронизация по построению, дрейфа не
+    /// может быть в принципе, никакой ручной пересинхронизации не нужно.
     ///
-    /// Это устраняет саму причину всех предыдущих проблем с рассинхронизацией
-    /// (два независимых "часов" — звук и визуализация): паузы, перемотки,
-    /// зацикливание, конец трека, тишина — всё автоматически отражается
-    /// правильно, без единого явного сигнала синхронизации с нашей стороны,
-    /// потому что это буквально один и тот же поток данных, а не два разных.
-    ///
-    /// ТЕХНИЧЕСКИЙ ПРИЁМ: CreateDeviceInputNodeAsync обычно создаёт узел
-    /// записи С МИКРОФОНА. Но если передать в него DeviceInformation,
-    /// полученный через MediaDevice.GetAudioRenderSelector() (обычно
-    /// используется для устройств ВЫВОДА, не ввода), система интерпретирует
-    /// это как запрос на loopback-захват — то, что уходит НА это устройство,
-    /// а не то, что приходит С него. Задокументированный (хоть и не самый
-    /// очевидный) приём — см. официальный пример Microsoft "Audio graphs" +
-    /// независимое подтверждение на форуме разработчиков.
-    ///
-    /// БОЛЬШЕ НЕ ПРИВЯЗАН К КОНКРЕТНОМУ ФАЙЛУ/ТРЕКУ — создаётся ОДИН РАЗ за
-    /// всё время работы приложения (см. MainPage.MainPage_Loaded), не
-    /// пересоздаётся на каждый трек и не нуждается в пересинхронизации.
-    /// Никакого Seek(), никакого "времени жизни декодирующей сессии" — этих
-    /// проблем просто не существует в данной архитектуре, потому что мы
-    /// больше не декодируем сжатый файл сами вообще.
+    /// Оптимизации, наработанные ранее (когда щёлкал звук), сохранены:
+    /// безаллокационный итеративный FFT (Helpers/FFT.cs), переиспользуемые
+    /// буферы, расчёт через раз, флаг IsPaused для экономии CPU в фоне.
     /// </summary>
     public class VisualizerService : IDisposable
     {
         private AudioGraph _graph;
-        private AudioDeviceInputNode _loopbackInput;
         private AudioFrameOutputNode _frameOutput;
 
         private const int FftSize = 4096;
@@ -49,90 +28,92 @@ namespace AudioVisualizerPlayer.Services
 
         public event EventHandler<float[]> LevelsChanged;
 
-        /// <summary>Экономия CPU при блокировке экрана/сворачивании — топология
-        /// графа не меняется, просто пропускаем обработку кадров.</summary>
         public bool IsPaused { get; set; }
 
+        private static int _attachToSuccessCount = 0;
+
         /// <summary>
-        /// Создаёт loopback-граф. Вызывается ОДИН РАЗ за время жизни
-        /// приложения (не на каждый трек) — сам граф не привязан к тому,
-        /// что именно играет, просто слушает реальный звуковой выход.
+        /// Подключается к уже загруженному треку в PlaybackService — второе
+        /// исходящее соединение от Submix, что и реальный звук.
         /// </summary>
-        public async System.Threading.Tasks.Task InitializeLoopbackAsync()
+        public async System.Threading.Tasks.Task AttachToAsync(PlaybackService playback)
         {
-            Diag.Log("VisualizerService.InitializeLoopbackAsync: начало");
-            Dispose(); // на случай повторного использования экземпляра
+            Diag.Log("VisualizerService.AttachToAsync вызван");
+            Detach();
 
-            var settings = new AudioGraphSettings(AudioRenderCategory.Media);
-            Diag.Log("InitializeLoopbackAsync: перед AudioGraph.CreateAsync");
-            var graphResult = await AudioGraph.CreateAsync(settings);
-            Diag.Log($"InitializeLoopbackAsync: AudioGraph.CreateAsync status={graphResult.Status}");
-            if (graphResult.Status != AudioGraphCreationStatus.Success)
-                throw new InvalidOperationException("Не удалось создать AudioGraph для loopback: " + graphResult.Status);
+            _graph = playback.Graph;
+            if (_graph == null || playback.Submix == null)
+                throw new InvalidOperationException("PlaybackService ещё не загрузил трек — AttachTo нужно вызывать после LoadAsync.");
 
-            _graph = graphResult.Graph;
-
-            // Ключевой момент: берём устройство из СЕЛЕКТОРА УСТРОЙСТВ
-            // ВЫВОДА (не ввода!) — именно это заставляет систему выполнить
-            // loopback-захват вместо записи с микрофона.
-            Diag.Log("InitializeLoopbackAsync: перед DeviceInformation.FindAllAsync(GetAudioRenderSelector)");
-            var renderDevices = await DeviceInformation.FindAllAsync(MediaDevice.GetAudioRenderSelector());
-            Diag.Log($"InitializeLoopbackAsync: найдено устройств вывода = {renderDevices.Count}");
-            foreach (var d in renderDevices)
+            try
             {
-                Diag.Log($"  устройство: Name='{d.Name}', Id='{d.Id}'");
+                _frameOutput = _graph.CreateFrameOutputNode(_graph.EncodingProperties);
+                Diag.Log("  CreateFrameOutputNode(с форматом графа) — успех");
             }
-            if (renderDevices.Count == 0)
-                throw new InvalidOperationException("Не найдено ни одного устройства вывода для loopback-захвата.");
+            catch (Exception ex)
+            {
+                Diag.Log("  CreateFrameOutputNode — ОШИБКА: " + ex);
+                throw new Exception($"AttachTo ШАГ A (CreateFrameOutputNode), успешных AttachTo до этого за сессию: {_attachToSuccessCount}: " + ex.Message, ex);
+            }
 
-            var loopbackDevice = renderDevices[0]; // системное устройство по умолчанию — первое в списке
-            Diag.Log($"InitializeLoopbackAsync: выбрано устройство '{loopbackDevice.Name}', перед CreateDeviceInputNodeAsync");
+            Exception lastError = null;
+            for (int attempt = 1; attempt <= 4; attempt++)
+            {
+                try
+                {
+                    playback.Submix.AddOutgoingConnection(_frameOutput);
+                    Diag.Log($"  Submix -> FrameOutput подключено — успех (попытка {attempt})");
+                    lastError = null;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                    Diag.Log($"  Submix -> FrameOutput — ОШИБКА (попытка {attempt}): {ex}");
+                    if (attempt < 4)
+                    {
+                        await System.Threading.Tasks.Task.Delay(150);
+                    }
+                }
+            }
 
-            var inputResult = await _graph.CreateDeviceInputNodeAsync(MediaCategory.Media, _graph.EncodingProperties, loopbackDevice);
-            Diag.Log($"InitializeLoopbackAsync: CreateDeviceInputNodeAsync status={inputResult.Status}");
-            if (inputResult.Status != AudioDeviceNodeCreationStatus.Success)
-                throw new InvalidOperationException("Не удалось создать loopback-узел: " + inputResult.Status);
-
-            _loopbackInput = inputResult.DeviceInputNode;
-            _frameOutput = _graph.CreateFrameOutputNode();
-            _loopbackInput.AddOutgoingConnection(_frameOutput);
-            Diag.Log("InitializeLoopbackAsync: узлы соединены");
+            if (lastError != null)
+            {
+                throw new Exception($"AttachTo ШАГ B (AddOutgoingConnection) после 4 попыток, успешных AttachTo до этого за сессию: {_attachToSuccessCount}: " + lastError.Message, lastError);
+            }
 
             _graph.QuantumStarted += OnQuantumStarted;
-
-            // Loopback-граф просто всегда работает — не привязан к play/pause
-            // конкретного трека (если реальный звук молчит, мы честно
-            // услышим тишину — и AGC сама естественно опустит бары к нулю,
-            // без необходимости явно останавливать/запускать граф на каждую
-            // паузу). Управление Start()/Stop() ниже остаётся только ради
-            // экономии CPU в фоне/на паузе, не ради корректности.
-            _graph.Start();
-            Diag.Log("InitializeLoopbackAsync: _graph.Start() вызван — завершено успешно");
+            _attachToSuccessCount++;
+            Diag.Log($"AttachTo завершён успешно (успешных за сессию: {_attachToSuccessCount})");
         }
 
-        public void Start()
+        private void Detach()
         {
-            _graph?.Start();
+            try
+            {
+                if (_graph != null)
+                {
+                    _graph.QuantumStarted -= OnQuantumStarted;
+                }
+                _frameOutput?.Dispose();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Граф/узел уже уничтожены снаружи — нам тут больше нечего освобождать.
+            }
+            finally
+            {
+                _frameOutput = null;
+                _graph = null;
+            }
         }
 
-        public void Stop()
-        {
-            _graph?.Stop();
-        }
-
-        // Накопительный буфер: один quantum обычно приносит гораздо меньше
-        // FftSize сэмплов, поэтому копим их между вызовами QuantumStarted.
         private readonly System.Collections.Generic.List<float> _sampleBuffer = new System.Collections.Generic.List<float>(FftSize * 2);
-
-        // Переиспользуемые буферы — без единой аллокации на реальном пути
-        // обработки кванта.
         private float[] _extractScratch = new float[0];
         private readonly float[] _chunkBuffer = new float[FftSize];
-
         private float _agcMax = 0.01f;
         private volatile bool _isProcessingFft = false;
         private bool _skipThisQuantum = false;
-
         private int _quantumCallCount = 0;
 
         private void OnQuantumStarted(AudioGraph sender, object args)
@@ -144,7 +125,7 @@ namespace AudioVisualizerPlayer.Services
                 _quantumCallCount++;
                 if (_quantumCallCount % 50 == 0)
                 {
-                    Diag.Log($"VisualizerService.OnQuantumStarted: heartbeat, вызовов={_quantumCallCount}");
+                    Diag.Log($"OnQuantumStarted: heartbeat, вызовов={_quantumCallCount}");
                 }
 
                 Windows.Media.AudioFrame frame = _frameOutput.GetFrame();
@@ -229,31 +210,10 @@ namespace AudioVisualizerPlayer.Services
 
         public void Dispose()
         {
-            try
-            {
-                if (_graph != null)
-                {
-                    _graph.QuantumStarted -= OnQuantumStarted;
-                }
-                _frameOutput?.Dispose();
-                _loopbackInput?.Dispose();
-                _graph?.Stop();
-                _graph?.Dispose();
-            }
-            catch (ObjectDisposedException)
-            {
-                // Уже освобождено — ничего страшного.
-            }
-            finally
-            {
-                _frameOutput = null;
-                _loopbackInput = null;
-                _graph = null;
-            }
+            Detach();
         }
     }
 
-    // Нужно для доступа к сырым байтам AudioFrame — стандартный COM-интероп UWP
     [System.Runtime.InteropServices.ComImport]
     [System.Runtime.InteropServices.Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")]
     [System.Runtime.InteropServices.InterfaceType(System.Runtime.InteropServices.ComInterfaceType.InterfaceIsIUnknown)]
